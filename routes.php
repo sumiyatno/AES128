@@ -68,6 +68,30 @@ switch ($action) {
         }
         break;
 
+    // ============ Tampilkan Form Rotate Key ============
+    case 'rotate_form':
+        require __DIR__ . '/views/model.php';
+        break;
+
+    // ============ Proses Rotate Key ============
+    case 'rotateKey':
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $controller = new FileController($pdo);
+            $newSecret  = $_POST['new_secret'] ?? null;
+
+            try {
+                $controller->rotateKeyAndUpdateDB($newSecret); // 🔹 pake function yg sudah ada
+                header("Location: ?action=rotate_form&status=success");
+                exit;
+            } catch (Exception $e) {
+                header("Location: ?action=rotate_form&status=error");
+                exit;
+            }
+        } else {
+            echo "Gunakan form POST untuk rotate key";
+        }
+        break;
+
     // ============ Default (dashboard) ============
     default:
         $controller = new FileController($pdo);
@@ -82,5 +106,6 @@ switch ($action) {
             echo "</li>";
         }
         echo "</ul>";
+        echo "<p><a href='?action=rotate_form'>🔑 Rotate Master Key</a></p>";
         break;
 }

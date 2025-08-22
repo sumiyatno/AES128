@@ -2,6 +2,7 @@
 require_once __DIR__ . "/../models/File.php";
 require_once __DIR__ . "/../models/Label.php";
 require_once __DIR__ . "/../config/crypto.php";
+require_once __DIR__ . "/../config/CryptoKeyRotate.php"; // perbaikan path
 
 class FileController {
     private $pdo;
@@ -9,8 +10,8 @@ class FileController {
     private $labelModel;
 
     public function __construct($pdo) {
-        $this->pdo = $pdo;
-        $this->fileModel = new FileModel($pdo);
+        $this->pdo        = $pdo;
+        $this->fileModel  = new FileModel($pdo);
         $this->labelModel = new Label($pdo);
     }
 
@@ -21,7 +22,7 @@ class FileController {
             throw new RuntimeException("Label tidak ditemukan");
         }
 
-        $fileId = uniqid("file_");
+        $fileId     = uniqid("file_");
         $userSecret = $restricted_password ? $restricted_password : null;
 
         // buat password hash khusus restricted
@@ -33,7 +34,7 @@ class FileController {
         // path sementara
         $tmpEncPath = sys_get_temp_dir() . "/enc_" . $fileId;
 
-        // === PERBAIKAN: sesuaikan ke crypto.php ===
+        // === Sesuaikan ke crypto.php ===
         $srcPath  = $file['tmp_name'];   // file asli
         $origName = $file['name'];       // nama file asli
         $dstPath  = $tmpEncPath;         // hasil terenkripsi
@@ -72,8 +73,8 @@ class FileController {
             }
         }
 
-        $fileId    = $file['filename'];
-        $origName  = base64_decode($file['original_filename']);
+        $fileId     = $file['filename'];
+        $origName   = base64_decode($file['original_filename']);
         $userSecret = $password ?: null;
 
         // simpan ciphertext ke temp file
@@ -82,7 +83,7 @@ class FileController {
 
         file_put_contents($tmpEnc, $file['file_data']);
 
-        // === PERBAIKAN: sesuaikan ke crypto.php ===
+        // === Sesuaikan ke crypto.php ===
         decrypt_file($tmpEnc, $tmpOut, $fileId, $origName, $userSecret);
 
         // baca hasil
@@ -115,5 +116,46 @@ class FileController {
             }
         }
         return $files;
+    }
+
+    // ================= Key Rotate dengan update DB =================
+    public function rotateKeyAndUpdateDB($newSecret) {
+        // sudah di require_once di atas, jadi langsung instansiasi
+        $rotator = new CryptoKeyRotate($newSecret);
+
+        // ambil semua file dari DB
+        $files = $this->fileModel->all();
+
+        $tempFiles = [];
+        foreach ($files as $f) {
+            $fileId   = $f['filename'];
+            $origName = base64_decode($f['original_filename']);
+
+            // buat file sementara
+            $tmpEnc = sys_get_temp_dir() . "/rotate_" . $fileId . ".enc";
+            file_put_contents($tmpEnc, $f['file_data']);
+
+            // simpan mapping untuk diproses oleh rotator
+            $tempFiles[] = [
+                'encPath'  => $tmpEnc,
+                'fileId'   => $fileId,
+                'origName' => $origName,
+                'dbId'     => $f['id'] // simpan id DB untuk update nanti
+            ];
+        }
+
+        // jalankan rotasi file
+        $rotator->rotateFiles($tempFiles);
+
+        // setelah rotate → baca ulang hasilnya, simpan ke DB
+        foreach ($tempFiles as $tmp) {
+            $newCipher = file_get_contents($tmp['encPath']);
+            $this->fileModel->updateFileData($tmp['dbId'], $newCipher);
+
+            // hapus file sementara
+            @unlink($tmp['encPath']);
+        }
+
+        return "Master Key berhasil di-rotate dan database sudah diperbarui!";
     }
 }

@@ -15,6 +15,7 @@ $files = $controller->dashboard();
   <h2 class="mb-4">Dashboard File</h2>
   <a href="upload_form.php" class="btn btn-success mb-3">Upload File</a>
   <a href="create_label.php" class="btn btn-info mb-3">Buat Label</a>
+  <a href="model.php" class="btn btn-info mb-3">Update Key</a>
 
   <table class="table table-bordered table-striped shadow-sm bg-white">
     <thead class="table-dark">
