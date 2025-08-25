@@ -1,5 +1,7 @@
-<?php require_once __DIR__ . '/../controllers/FileController.php'; ?>
 <?php
+require_once __DIR__ . '/../controllers/FileController.php';
+
+// Inisialisasi controller
 $controller = new FileController($pdo);
 $files = $controller->dashboard();
 ?>
@@ -9,13 +11,17 @@ $files = $controller->dashboard();
   <meta charset="UTF-8">
   <title>Dashboard File</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="sidebar.css" rel="stylesheet"> <!-- sudah diperbaiki -->
 </head>
 <body class="bg-light">
-<div class="container mt-5">
+
+<!-- Sidebar -->
+<?php include __DIR__ . '/sidebar.php'; ?> <!-- sudah diperbaiki -->
+
+<!-- Konten utama -->
+<div class="container mt-5" style="margin-left: 220px;">
   <h2 class="mb-4">Dashboard File</h2>
-  <a href="upload_form.php" class="btn btn-success mb-3">Upload File</a>
-  <a href="create_label.php" class="btn btn-info mb-3">Buat Label</a>
-  <a href="model.php" class="btn btn-info mb-3">Update Key</a>
+  
 
   <table class="table table-bordered table-striped shadow-sm bg-white">
     <thead class="table-dark">
@@ -47,5 +53,6 @@ $files = $controller->dashboard();
     </tbody>
   </table>
 </div>
+
 </body>
 </html>

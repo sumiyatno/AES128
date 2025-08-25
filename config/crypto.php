@@ -6,16 +6,16 @@ function hkdf_sha256($ikm, $salt, $info, $length = 16) {
     return hash_hkdf("sha256", $ikm, $length, $info, $salt);
 }
 
-
-// Derive kunci dari metadata (bukan hash plaintext)
-function derive_aes128_key(string $fileId, string $origName, string $salt16, ?string $userSecret = null): string {
+// Derive kunci dari metadata (AES-256 key)
+function derive_aes256_key(string $fileId, string $origName, string $salt16, ?string $userSecret = null): string {
     $masterSecret = getenv('MASTER_SECRET');
     if (!$masterSecret) throw new RuntimeException("MASTER_SECRET not set in .env");
 
     $ikm = base64_decode(explode(':', $masterSecret, 2)[1] ?? '') 
          . '|' . $fileId . '|' . $origName . '|' . ($userSecret ?? '');
 
-    return hkdf_sha256($ikm, $salt16, 'aes-128-cbc:key', 16);
+    // AES-256 = 32 byte key
+    return hkdf_sha256($ikm, $salt16, 'aes-256-cbc:key', 32);
 }
 
 function derive_mac_key(string $fileId, string $origName, string $salt16, ?string $userSecret = null): string {
@@ -25,19 +25,18 @@ function derive_mac_key(string $fileId, string $origName, string $salt16, ?strin
     $ikm = base64_decode(explode(':', $masterSecret, 2)[1] ?? '') 
          . '|' . $fileId . '|' . $origName . '|' . ($userSecret ?? '');
 
-    return hkdf_sha256($ikm, $salt16, 'aes-128-cbc:mac', 32);
+    return hkdf_sha256($ikm, $salt16, 'aes-256-cbc:mac', 32);
 }
 
 function encrypt_file(string $srcPath, string $dstPath, string $fileId, string $origName, ?string $userSecret = null): void {
     $salt = random_bytes(16);
     $iv   = random_bytes(16);
 
-    // konsisten: selalu pakai origName dari DB
-    $encKey = derive_aes128_key($fileId, $origName, $salt, $userSecret);
+    $encKey = derive_aes256_key($fileId, $origName, $salt, $userSecret);
     $macKey = derive_mac_key($fileId, $origName, $salt, $userSecret);
 
     $plaintext   = file_get_contents($srcPath);
-    $ciphertext  = openssl_encrypt($plaintext, 'aes-128-cbc', $encKey, OPENSSL_RAW_DATA, $iv);
+    $ciphertext  = openssl_encrypt($plaintext, 'aes-256-cbc', $encKey, OPENSSL_RAW_DATA, $iv);
     if ($ciphertext === false) throw new RuntimeException('OpenSSL encrypt failed');
 
     $mac = hash_hmac('sha256', $iv . $ciphertext, $macKey, true);
@@ -62,13 +61,13 @@ function decrypt_file(string $encPath, string $dstPath, string $fileId, string $
     $ciphertext = stream_get_contents($fp);
     fclose($fp);
 
-    $encKey = derive_aes128_key($fileId, $origName, $salt, $userSecret);
+    $encKey = derive_aes256_key($fileId, $origName, $salt, $userSecret);
     $macKey = derive_mac_key($fileId, $origName, $salt, $userSecret);
 
     $calcMac = hash_hmac('sha256', $iv . $ciphertext, $macKey, true);
     if (!hash_equals($mac, $calcMac)) throw new RuntimeException('MAC verification failed');
 
-    $plaintext = openssl_decrypt($ciphertext, 'aes-128-cbc', $encKey, OPENSSL_RAW_DATA, $iv);
+    $plaintext = openssl_decrypt($ciphertext, 'aes-256-cbc', $encKey, OPENSSL_RAW_DATA, $iv);
     if ($plaintext === false) throw new RuntimeException('OpenSSL decrypt failed');
 
     file_put_contents($dstPath, $plaintext);

@@ -1,7 +1,11 @@
 <?php require_once __DIR__ . '/../models/Label.php'; ?>
+<?php include __DIR__ . '/sidebar.php'; ?> <!-- sudah diperbaiki -->
+
 <?php
 $labelModel = new Label($pdo);
 $labels = $labelModel->all();
+
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -9,6 +13,7 @@ $labels = $labelModel->all();
   <meta charset="UTF-8">
   <title>Upload File</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="sidebar.css" rel="stylesheet"> <!-- sudah diperbaiki -->
 </head>
 <body class="bg-light">
 <div class="container mt-5">

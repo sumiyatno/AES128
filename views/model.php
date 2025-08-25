@@ -1,3 +1,5 @@
+<?php include __DIR__ . '/sidebar.php'; ?> <!-- sudah diperbaiki -->
+
 <?php
 // File: views/model.php
 ?>
@@ -6,6 +8,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Rotate Master Key</title>
+    <link href="sidebar.css" rel="stylesheet"> <!-- sudah diperbaiki -->
     <style>
         body {
             font-family: Arial, sans-serif;

@@ -1,0 +1,52 @@
+/* Sidebar Style */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: -200px; /* default sembunyi */
+  width: 200px;
+  height: 100%;
+  background: #212529;
+  color: white;
+  padding-top: 60px;
+  transition: left 0.3s ease;
+  z-index: 1000;
+}
+
+.sidebar a {
+  display: block;
+  padding: 12px 20px;
+  color: #f8f9fa;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.sidebar a:hover {
+  background: #495057;
+}
+
+/* Area pemicu di sisi kiri */
+.hover-area {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 100%;
+  z-index: 999;
+}
+
+/* Saat hover di hover-area, sidebar muncul */
+.hover-area:hover + .sidebar,
+.sidebar:hover {
+  left: 0;
+}
+
+/* Konten utama geser dikit biar ga ketutup */
+.content {
+  margin-left: 30px;
+  transition: margin-left 0.3s ease;
+}
+
+.hover-area:hover ~ .content,
+.sidebar:hover ~ .content {
+  margin-left: 220px;
+}

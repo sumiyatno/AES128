@@ -1,10 +1,7 @@
 <?php
-// File: App/Core/CryptoKeyRotate.php
-namespace App\Core;
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/crypto.php';
-use RuntimeException;
 
 class CryptoKeyRotate
 {
@@ -14,7 +11,11 @@ class CryptoKeyRotate
 
     public function __construct(string $newSecret, string $envPath = __DIR__ . '/../.env')
     {
-        $this->oldSecret = getenv('MASTER_SECRET') ?: throw new RuntimeException("MASTER_SECRET not set");
+        $this->oldSecret = getenv('MASTER_SECRET');
+        if (!$this->oldSecret) {
+            throw new RuntimeException("MASTER_SECRET not set");
+        }
+
         $this->newSecret = $newSecret;
         $this->envPath   = $envPath;
     }
@@ -32,18 +33,18 @@ class CryptoKeyRotate
     }
 
     /**
-     * Rotasi satu file terenkripsi
+     * Rotasi satu file terenkripsi (AES-256-CBC)
      */
     private function rotateSingleFile(string $encPath, string $fileId, string $origName): void
     {
         $tmpPlain = $encPath . '.tmp.plain';
         $tmpNew   = $encPath . '.tmp.new';
 
-        // step 1: decrypt pakai old secret
+        // step 1: decrypt pakai old secret (AES-256-CBC)
         putenv("MASTER_SECRET=" . $this->oldSecret);
         Crypto::decrypt_file($encPath, $tmpPlain, $fileId, $origName);
 
-        // step 2: encrypt ulang pakai new secret
+        // step 2: encrypt ulang pakai new secret (AES-256-CBC)
         putenv("MASTER_SECRET=" . $this->newSecret);
         Crypto::encrypt_file($tmpPlain, $tmpNew, $fileId, $origName);
 
@@ -86,7 +87,7 @@ class CryptoKeyRotate
 
         // Jika kosong → generate secret random
         if ($input === '') {
-            $randomBytes = random_bytes(32);
+            $randomBytes = random_bytes(32); // 32 byte untuk AES-256
             return 'v2:' . base64_encode($randomBytes);
         }
 
