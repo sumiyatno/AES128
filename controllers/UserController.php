@@ -60,7 +60,7 @@ class UserController {
                 1 => ['upload', 'dashboard'],
                 2 => ['upload', 'dashboard', 'create_label'],
                 3 => ['upload', 'dashboard', 'create_label'],
-                4 => ['upload', 'dashboard', 'create_label', 'manage_account', 'manage', 'admin']
+                4 => ['upload', 'dashboard', 'create_label', 'manage_account', 'manage', 'admin', 'master_key']
             ];
             return in_array($feature, $features[$role] ?? []);
         }
