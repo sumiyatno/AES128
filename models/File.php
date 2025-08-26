@@ -30,7 +30,7 @@ class FileModel {
     public function allWithAccessLevel($level) {
         $level = (int)$level;
         $stmt = $this->pdo->prepare('
-            SELECT f.*, l.name AS label_name,
+            SELECT f.*, l.name AS label_name, l.access_level AS label_access_level_enum,
                    fa.level AS file_access_level_level, fa.name AS file_access_level_name
             FROM files f
             JOIN labels l ON f.label_id = l.id
