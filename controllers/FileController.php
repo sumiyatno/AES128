@@ -1,13 +1,24 @@
 <?php
+
 require_once __DIR__ . "/../models/File.php";
 require_once __DIR__ . "/../models/Label.php";
 require_once __DIR__ . "/../config/crypto.php";
-require_once __DIR__ . "/../config/CryptoKeyRotate.php"; // perbaikan path
+require_once __DIR__ . "/../config/CryptoKeyRotate.php";
 
 class FileController {
     private $pdo;
     private $fileModel;
     private $labelModel;
+
+    // Fungsi pembatasan hak akses file
+    // $fileAccessLevel: level akses file (1,2,3)
+    // $userRole: role user (1=staff, 2=kasub, 3=kabid, 4=super admin)
+    public function canAccessFile($fileAccessLevel, $userRole) {
+        // Super admin (role 4) bisa akses semua file
+        if ($userRole == 4) return true;
+        // Role lain hanya bisa akses file dengan level <= role
+        return $userRole >= $fileAccessLevel;
+    }
 
     public function __construct($pdo) {
         $this->pdo        = $pdo;
@@ -16,7 +27,7 @@ class FileController {
     }
 
     // ================= Upload =================
-    public function upload($file, $label_id, $restricted_password = null) {
+    public function upload($file, $label_id, $access_level_id, $restricted_password = null) {
         $label = $this->labelModel->find($label_id);
         if (!$label) {
             throw new RuntimeException("Label tidak ditemukan");
@@ -25,35 +36,35 @@ class FileController {
         $fileId     = uniqid("file_");
         $userSecret = $restricted_password ? $restricted_password : null;
 
-        // buat password hash khusus restricted
         $restrictedPasswordHash = null;
         if ($label['access_level'] === 'restricted' && $restricted_password) {
             $restrictedPasswordHash = password_hash($restricted_password, PASSWORD_ARGON2ID);
         }
 
-        // path sementara
         $tmpEncPath = sys_get_temp_dir() . "/enc_" . $fileId;
-
-        // === Sesuaikan ke crypto.php ===
-        $srcPath  = $file['tmp_name'];   // file asli
-        $origName = $file['name'];       // nama file asli
-        $dstPath  = $tmpEncPath;         // hasil terenkripsi
+        $srcPath  = $file['tmp_name'];
+        $origName = $file['name'];
+        $dstPath  = $tmpEncPath;
 
         encrypt_file($srcPath, $dstPath, $fileId, $origName, $userSecret);
-
-        // baca hasil encrypt
         $encData = file_get_contents($tmpEncPath);
 
-        // simpan ke DB
-        $this->fileModel->create(
+        // Simpan ke DB, tambahkan access_level_id
+        $stmt = $this->pdo->prepare('
+            INSERT INTO files 
+            (filename, original_filename, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ');
+        $stmt->execute([
             $fileId,
             base64_encode($file['name']),
             base64_encode($file['type']),
             $encData,
             $label_id,
-            "", // iv tidak perlu, sudah include di file
+            $access_level_id,
+            "", // iv
             $restrictedPasswordHash
-        );
+        ]);
 
         unlink($tmpEncPath);
         return true;
@@ -106,13 +117,18 @@ class FileController {
 
     // ================= Dashboard =================
     public function dashboard() {
-        $files = $this->fileModel->all();
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $level = $_SESSION['user_level'] ?? 1;
+        $files = $this->fileModel->allWithAccessLevel($level);
         foreach ($files as &$f) {
-            $label = $this->labelModel->find($f['label_id']);
-            if ($label && $label['access_level'] === 'public') {
-                $f['decrypted_name'] = base64_decode($f['original_filename']);
+            // Cek apakah label restricted/private
+            if (isset($f["label_access_level_enum"]) && 
+                ($f["label_access_level_enum"] === 'restricted' || $f["label_access_level_enum"] === 'private')) {
+                $f["decrypted_name"] = "[Restricted/Private]";
             } else {
-                $f['decrypted_name'] = "[Restricted/Private]";
+                $f["decrypted_name"] = base64_decode($f["original_filename"]);
             }
         }
         return $files;
@@ -120,7 +136,6 @@ class FileController {
 
     // ================= Key Rotate dengan update DB =================
     public function rotateKeyAndUpdateDB($newSecret) {
-        // sudah di require_once di atas, jadi langsung instansiasi
         $rotator = new CryptoKeyRotate($newSecret);
 
         // ambil semua file dari DB
@@ -157,5 +172,13 @@ class FileController {
         }
 
         return "Master Key berhasil di-rotate dan database sudah diperbarui!";
+    }
+
+    // Cek apakah user sudah login (gunakan session)
+    public function isAuthenticated() {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        return isset($_SESSION['user_id']);
     }
 }

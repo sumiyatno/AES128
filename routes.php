@@ -6,6 +6,105 @@ require_once __DIR__ . '/controllers/LabelController.php';
 $action = $_GET['action'] ?? '';
 
 switch ($action) {
+    // ============ Tambah User ============
+    case 'create_user':
+        require_once __DIR__ . '/controllers/UserController.php';
+        $controller = new UserController($pdo);
+        $username = $_POST['username'] ?? '';
+        $password = $_POST['password'] ?? '';
+        $access_level_id = $_POST['access_level_id'] ?? '';
+        if ($username && $password && $access_level_id) {
+            $result = $controller->createUser($username, $password, $access_level_id);
+            if ($result) {
+                header('Location: views/manage_account.php?status=success');
+                exit;
+            } else {
+                header('Location: views/manage_account.php?status=error');
+                exit;
+            }
+        } else {
+            header('Location: views/manage_account.php?status=error');
+            exit;
+        }
+        break;
+
+    // ============ Hapus User ============
+    case 'delete_user':
+        require_once __DIR__ . '/controllers/UserController.php';
+        $controller = new UserController($pdo);
+        $id = $_GET['id'] ?? null;
+        if ($id) {
+            $result = $controller->deleteUser($id);
+            if ($result) {
+                header('Location: views/manage_account.php?status=success');
+                exit;
+            } else {
+                header('Location: views/manage_account.php?status=error');
+                exit;
+            }
+        } else {
+            header('Location: views/manage_account.php?status=error');
+            exit;
+        }
+        break;
+
+    // ============ Logout ============
+    case 'logout':
+        require_once __DIR__ . '/controllers/AuthController.php';
+        $auth = new AuthController();
+        $auth->logout();
+        header('Location: views/login.php');
+        exit;
+        break;
+    // ============ Update User ============
+    case 'update_user':
+        require_once __DIR__ . '/controllers/UserController.php';
+        $controller = new UserController($pdo);
+        $id = $_GET['id'] ?? null;
+        $username = $_POST['username'] ?? '';
+        $password = $_POST['password'] ?? '';
+        $access_level_id = $_POST['access_level_id'] ?? '';
+        if ($id && $username && $access_level_id) {
+            // Jika password kosong, ambil password lama dari DB
+            if (empty($password)) {
+                $user = $controller->getUser($id);
+                $password = $user ? $user['password'] : '';
+            }
+            $result = $controller->updateUser($id, $username, $password, $access_level_id);
+            if ($result) {
+                header('Location: views/manage_account.php?status=success');
+                exit;
+            } else {
+                header('Location: views/manage_account.php?status=error');
+                exit;
+            }
+        } else {
+            header('Location: views/manage_account.php?status=error');
+            exit;
+        }
+        break;
+    // ============ Registrasi User ============
+    case 'register':
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            require_once __DIR__ . '/controllers/UserController.php';
+            $controller = new UserController($pdo);
+            $username = $_POST['username'] ?? '';
+            $password = $_POST['password'] ?? '';
+            $access_level_id = $_POST['access_level_id'] ?? '';
+            if ($username && $password && $access_level_id) {
+                $result = $controller->createUser($username, $password, $access_level_id);
+                if ($result) {
+                    echo "✅ Registrasi berhasil! Silakan login.";
+                } else {
+                    echo "❌ Registrasi gagal! Username mungkin sudah digunakan.";
+                }
+            } else {
+                echo "❌ Semua field harus diisi.";
+            }
+        } else {
+            echo "Gunakan POST untuk registrasi user";
+        }
+        break;
 
     // ============ Upload File ============
     case 'upload':
@@ -15,9 +114,14 @@ switch ($action) {
             $file     = $_FILES['file'];
             $labelId  = $_POST['label_id'] ?? null;
             $password = $_POST['restricted_password'] ?? null;
+            $access_level_id = $_POST['access_level_id'] ?? null;
+            if (empty($access_level_id) || !is_numeric($access_level_id)) {
+                echo "❌ Upload gagal: Level akses harus dipilih!";
+                exit;
+            }
 
             try {
-                $controller->upload($file, $labelId, $password);
+                $controller->upload($file, $labelId, $access_level_id, $password);
                 echo "✅ File berhasil diupload";
             } catch (Exception $e) {
                 http_response_code(500);

@@ -37,10 +37,23 @@ $labels = $labelModel->all();
       </select>
     </div>
 
+      
     <div class="mb-3">
       <label for="restricted_password" class="form-label">Password (untuk Restricted)</label>
       <input type="password" name="restricted_password" id="restricted_password" class="form-control">
       <div class="form-text">Kosongkan jika tidak menggunakan password khusus.</div>
+    </div>
+
+    <div class="mb-3">
+      <label for="access_level_id" class="form-label">Akses File (Role)</label>
+      <select name="access_level_id" id="access_level_id" class="form-select" required>
+        <option value="">-- Pilih Level Akses --</option>
+        <option value="1">Staff/General</option>
+        <option value="2">Kepala Sub Bidang</option>
+        <option value="3">Kepala Bidang</option>
+        <option value="4">Super Admin</option>
+      </select>
+      <div class="form-text">Pilih level akses file sesuai role yang boleh mengakses.</div>
     </div>
 
     <button type="submit" class="btn btn-primary">Upload</button>

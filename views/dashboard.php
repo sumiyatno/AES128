@@ -1,9 +1,33 @@
 <?php
 require_once __DIR__ . '/../controllers/FileController.php';
+require_once __DIR__ . '/../controllers/UserController.php';
+require_once __DIR__ . '/../models/User.php';
 
 // Inisialisasi controller
 $controller = new FileController($pdo);
-$files = $controller->dashboard();
+$userController = new UserController($pdo);
+$filesRaw = $controller->dashboard();
+
+// Ambil role user yang sedang login
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+$userId = $_SESSION['user_id'] ?? null;
+
+// Filter file sesuai hak akses user
+$files = [];
+if ($userId) {
+  foreach ($filesRaw as $file) {
+    // Ambil access_level dari file (bukan label)
+    $fileAccessLevel = (int)($file['file_access_level_level'] ?? 1);
+    if ($userController->canUserAccessFile($fileAccessLevel, $userId)) {
+      $files[] = $file;
+    }
+  }
+}
+
+$totalData = count($filesRaw); // total file di database
+$dataMasuk = count($files);    // file yang bisa diakses user
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -21,6 +45,10 @@ $files = $controller->dashboard();
 <!-- Konten utama -->
 <div class="container mt-5" style="margin-left: 220px;">
   <h2 class="mb-4">Dashboard File</h2>
+  <div class="mb-3">
+    <span class="badge bg-primary">Total Data: <?= $totalData ?></span>
+    <span class="badge bg-success">Data Masuk: <?= $dataMasuk ?></span>
+  </div>
   
 
   <table class="table table-bordered table-striped shadow-sm bg-white">

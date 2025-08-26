@@ -1,3 +1,4 @@
+    
 <?php
 require_once __DIR__ . "/../models/Label.php";
 
@@ -18,5 +19,12 @@ class LabelController {
     // ambil semua label
     public function all() {
         return $this->labelModel->all();
+    }
+    // Cek apakah user sudah login (gunakan AuthController)
+    public function isAuthenticated() {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        return isset($_SESSION['user_id']);
     }
 }

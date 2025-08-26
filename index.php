@@ -29,5 +29,13 @@ set_exception_handler(function ($exception) {
 });
 
 // --- Redirect ke dashboard ---
-header("Location: views/dashboard.php");
-exit;
+
+// Cek login
+session_start();
+if (isset($_SESSION['user_id'])) {
+    header("Location: views/dashboard.php");
+    exit;
+} else {
+    header("Location: views/login.php");
+    exit;
+}
