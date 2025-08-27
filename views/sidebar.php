@@ -17,21 +17,24 @@ function showMenu($feature, $label, $url, $icon, $role, $userController) {
     }
 }
 ?>
+
 <!-- Hover area tipis di kiri -->
 <div class="hover-area"></div>
 
 <!-- Sidebar -->
 <div class="sidebar">
-  <h5 class="text-center mb-4">Menu</h5>
-  <?php showMenu('upload', 'Upload File', 'upload_form.php', '📂', $role, $userController); ?>
-  <?php showMenu('create_label', 'Buat Label', 'create_label.php', '🏷️', $role, $userController); ?>
-  <?php showMenu('master_key', 'Update Key', 'model.php', '🔑', $role, $userController); ?>
-  <?php showMenu('dashboard', 'Dashboard', 'dashboard.php', '📊', $role, $userController); ?>
-  <?php showMenu('manage_account', 'Kelola Akun', 'manage_account.php', '👤', $role, $userController); ?>
+    <h5 class="text-center mb-4">Menu</h5>
+    
+    <?php showMenu('upload', 'Upload File', 'upload_form.php', '📂', $role, $userController); ?>
+    <?php showMenu('create_label', 'Buat Label', 'create_label.php', '🏷️', $role, $userController); ?>
+    <?php showMenu('master_key', 'Update Key', 'model.php', '🔑', $role, $userController); ?>
+    <?php showMenu('dashboard', 'Dashboard', 'dashboard.php', '📊', $role, $userController); ?>
+    <?php showMenu('manage_account', 'Kelola Akun', 'manage_account.php', '👤', $role, $userController); ?>
+    <?php showMenu('register', 'Register User', 'register.php', '📝', $role, $userController); ?>
 
-  <div class="mt-4">
-    <form action="../routes.php?action=logout" method="POST">
-      <button type="submit" class="btn btn-danger w-100">Logout</button>
-    </form>
-  </div>
+    <div class="mt-4">
+        <form action="../routes.php?action=logout" method="POST">
+            <button type="submit" class="btn btn-danger w-100">Logout</button>
+        </form>
+    </div>
 </div>

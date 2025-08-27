@@ -1,3 +1,24 @@
+<?php
+// Start session jika belum
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+// Cek pembatasan akses
+require_once __DIR__ . '/../controllers/UserController.php';
+require_once __DIR__ . '/../config/database.php';
+
+$userController = new UserController($pdo);
+$role = $_SESSION['user_level'] ?? 1;
+
+// Cek apakah user punya akses ke create_label
+if (!$userController->canAccessFeature($role, 'create_label')) {
+    http_response_code(403);
+    echo "❌ Anda tidak punya akses ke fitur ini.";
+    exit;
+}
+?>
+
 <?php include __DIR__ . '/sidebar.php'; ?> <!-- sudah diperbaiki -->
 
 

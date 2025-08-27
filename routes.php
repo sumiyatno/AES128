@@ -1,14 +1,50 @@
 <?php
-require_once __DIR__ . '/config/database.php';  // pastikan koneksi $pdo tersedia
+
+require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/controllers/FileController.php';
 require_once __DIR__ . '/controllers/LabelController.php';
+require_once __DIR__ . '/controllers/UserController.php';
+
+// Start session jika belum
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 $action = $_GET['action'] ?? '';
+$userController = new UserController($pdo);
+$role = $_SESSION['user_level'] ?? 1;
+
+// Mapping action ke feature yang ada di UserController
+$actionToFeature = [
+    'rotateKey' => 'master_key',
+    'rotate_form' => 'master_key',
+    'create_user' => 'manage_account',
+    'delete_user' => 'manage_account', 
+    'update_user' => 'manage_account'
+];
+
+// Logout tidak perlu pembatasan akses
+if ($action === 'logout') {
+    require_once __DIR__ . '/controllers/AuthController.php';
+    $auth = new AuthController();
+    $auth->logout();
+    header('Location: views/login.php');
+    exit;
+}
+
+// Tentukan feature berdasarkan action
+$feature = $actionToFeature[$action] ?? $action;
+
+// Gunakan fungsi pembatasan yang sudah ada di UserController (kecuali logout)
+if ($action !== 'logout' && !$userController->canAccessFeature($role, $feature)) {
+    http_response_code(403);
+    echo "❌ Anda tidak punya akses ke fitur ini.";
+    exit;
+}
 
 switch ($action) {
     // ============ Tambah User ============
     case 'create_user':
-        require_once __DIR__ . '/controllers/UserController.php';
         $controller = new UserController($pdo);
         $username = $_POST['username'] ?? '';
         $password = $_POST['password'] ?? '';
@@ -30,7 +66,6 @@ switch ($action) {
 
     // ============ Hapus User ============
     case 'delete_user':
-        require_once __DIR__ . '/controllers/UserController.php';
         $controller = new UserController($pdo);
         $id = $_GET['id'] ?? null;
         if ($id) {
@@ -56,16 +91,15 @@ switch ($action) {
         header('Location: views/login.php');
         exit;
         break;
+
     // ============ Update User ============
     case 'update_user':
-        require_once __DIR__ . '/controllers/UserController.php';
         $controller = new UserController($pdo);
         $id = $_GET['id'] ?? null;
         $username = $_POST['username'] ?? '';
         $password = $_POST['password'] ?? '';
         $access_level_id = $_POST['access_level_id'] ?? '';
         if ($id && $username && $access_level_id) {
-            // Jika password kosong, ambil password lama dari DB
             if (empty($password)) {
                 $user = $controller->getUser($id);
                 $password = $user ? $user['password'] : '';
@@ -83,10 +117,10 @@ switch ($action) {
             exit;
         }
         break;
+
     // ============ Registrasi User ============
     case 'register':
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            require_once __DIR__ . '/controllers/UserController.php';
             $controller = new UserController($pdo);
             $username = $_POST['username'] ?? '';
             $password = $_POST['password'] ?? '';
@@ -158,7 +192,7 @@ switch ($action) {
         $controller = new FileController($pdo);
 
         $id       = $_GET['id'] ?? null;
-        $password = $_POST['password'] ?? null; // ambil dari form kalau restricted
+        $password = $_POST['password'] ?? null;
 
         if ($id) {
             try {
@@ -184,7 +218,7 @@ switch ($action) {
             $newSecret  = $_POST['new_secret'] ?? null;
 
             try {
-                $controller->rotateKeyAndUpdateDB($newSecret); // 🔹 pake function yg sudah ada
+                $controller->rotateKeyAndUpdateDB($newSecret);
                 header("Location: ?action=rotate_form&status=success");
                 exit;
             } catch (Exception $e) {

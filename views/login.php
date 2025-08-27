@@ -28,7 +28,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <link href="sidebar.css" rel="stylesheet">
 </head>
 <body class="bg-light">
-<?php include __DIR__ . '/sidebar.php'; ?>
 <div class="container mt-5" style="max-width: 500px;">
   <h2 class="mb-4">Login User</h2>
   <?= $message ?>
@@ -42,7 +41,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <input type="password" class="form-control" id="password" name="password" required>
     </div>
     <button type="submit" class="btn btn-primary">Login</button>
-    
   </form>
 </div>
 </body>
