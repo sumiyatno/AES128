@@ -4,6 +4,7 @@ require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/controllers/FileController.php';
 require_once __DIR__ . '/controllers/LabelController.php';
 require_once __DIR__ . '/controllers/UserController.php';
+require_once __DIR__ . '/controllers/LogController.php'; // Tambahkan ini
 
 // Start session jika belum
 if (session_status() === PHP_SESSION_NONE) {
@@ -17,6 +18,7 @@ $role = $_SESSION['user_level'] ?? 1;
 // Mapping action ke feature yang ada di UserController
 $actionToFeature = [
     'rotateKey' => 'master_key',
+    'rotateKeyWithPasswords' => 'master_key',  // ← TAMBAHAN INI
     'rotate_form' => 'master_key',
     'create_user' => 'manage_account',
     'delete_user' => 'manage_account', 
@@ -26,7 +28,7 @@ $actionToFeature = [
 // Logout tidak perlu pembatasan akses
 if ($action === 'logout') {
     require_once __DIR__ . '/controllers/AuthController.php';
-    $auth = new AuthController();
+    $auth = new AuthController($pdo);  // ← PASS PDO
     $auth->logout();
     header('Location: views/login.php');
     exit;
@@ -83,15 +85,8 @@ switch ($action) {
         }
         break;
 
-    // ============ Logout ============
-    case 'logout':
-        require_once __DIR__ . '/controllers/AuthController.php';
-        $auth = new AuthController();
-        $auth->logout();
-        header('Location: views/login.php');
-        exit;
-        break;
-
+   
+    
     // ============ Update User ============
     case 'update_user':
         $controller = new UserController($pdo);
@@ -217,17 +212,86 @@ switch ($action) {
             $controller = new FileController($pdo);
             $newSecret  = $_POST['new_secret'] ?? null;
 
-            try {
-                $controller->rotateKeyAndUpdateDB($newSecret);
-                header("Location: ?action=rotate_form&status=success");
+            if (empty($newSecret)) {
+                header("Location: views/model.php?status=error&message=secret_empty");
                 exit;
+            }
+
+            try {
+                $result = $controller->rotateKeyAndUpdateDB($newSecret);
+                if ($result) {
+                    header("Location: views/model.php?status=success");
+                    exit;
+                } else {
+                    header("Location: views/model.php?status=error&message=process_failed");
+                    exit;
+                }
             } catch (Exception $e) {
-                header("Location: ?action=rotate_form&status=error");
+                // Log error untuk debugging
+                error_log("Key rotation error in routes.php: " . $e->getMessage());
+                header("Location: views/model.php?status=error&message=" . urlencode($e->getMessage()));
                 exit;
             }
         } else {
             echo "Gunakan form POST untuk rotate key";
         }
+        break;
+
+    // ============ Proses Rotate Key dengan Password ============
+    case 'rotateKeyWithPasswords':
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $controller = new FileController($pdo);
+            $newSecret  = $_POST['new_secret'] ?? null;
+            $restrictedPasswords = $_POST['restricted_passwords'] ?? [];
+
+            if (empty($newSecret)) {
+                header("Location: views/model.php?status=error&message=secret_empty");
+                exit;
+            }
+
+            try {
+                $result = $controller->rotateKeyAndUpdateDBWithPasswords($newSecret, $restrictedPasswords);
+                if ($result) {
+                    header("Location: views/model.php?status=success");
+                    exit;
+                } else {
+                    header("Location: views/model.php?status=error&message=process_failed");
+                    exit;
+                }
+            } catch (Exception $e) {
+                error_log("Key rotation with passwords error: " . $e->getMessage());
+                header("Location: views/model.php?status=error&message=" . urlencode($e->getMessage()));
+                exit;
+            }
+        } else {
+            echo "Gunakan form POST untuk rotate key";
+        }
+        break;
+
+    // ============ Log Management ============
+    case 'logs':
+        // Redirect ke view logs
+        header("Location: views/logs.php");
+        exit;
+        break;
+
+    case 'export_logs':
+        if (!$userController->canAccessFeature($role, 'admin')) {
+            http_response_code(403);
+            echo "❌ Access denied!";
+            exit;
+        }
+        
+        $logController = new LogController($pdo);
+        $filter = [
+            'action' => $_GET['action_filter'] ?? '',
+            'status' => $_GET['status_filter'] ?? '',
+            'user_id' => $_GET['user_filter'] ?? '',
+            'date_from' => $_GET['date_from'] ?? '',
+            'date_to' => $_GET['date_to'] ?? ''
+        ];
+        
+        $logController->exportToCSV($filter);
         break;
 
     // ============ Default (dashboard) ============

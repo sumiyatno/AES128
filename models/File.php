@@ -8,25 +8,51 @@ class FileModel {
         $this->pdo = $pdo;
     }
 
+    // Method yang diperlukan untuk key rotation
+    public function all() {
+        $stmt = $this->pdo->prepare('SELECT * FROM files ORDER BY uploaded_at DESC');
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    // Method untuk update file data setelah rotasi
+    public function updateFileData($id, $newFileData) {
+        $stmt = $this->pdo->prepare('UPDATE files SET file_data = ? WHERE id = ?');
+        return $stmt->execute([$newFileData, $id]);
+    }
+
     // Simpan file baru
-    public function create($filename, $original_filename, $mime_type, $file_data, $label_id, $iv, $restricted_password_hash = null) {
+    public function save($data) {
         $stmt = $this->pdo->prepare('
-            INSERT INTO files 
-            (filename, original_filename, mime_type, file_data, label_id, encryption_iv, restricted_password_hash) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO files (filename, original_filename, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ');
         return $stmt->execute([
-            $filename,
-            $original_filename,
-            $mime_type,
-            $file_data,
-            $label_id,
-            $iv,
-            $restricted_password_hash
+            $data['filename'],
+            $data['original_filename'],
+            $data['mime_type'],
+            $data['file_data'],
+            $data['label_id'],
+            $data['access_level_id'],
+            $data['encryption_iv'],
+            $data['restricted_password_hash']
         ]);
     }
 
-    // Ambil semua file + label + access_level (filtering utama: berdasarkan files.access_level_id)
+    // Cari file berdasarkan ID
+    public function find($id) {
+        $stmt = $this->pdo->prepare('SELECT * FROM files WHERE id = ?');
+        $stmt->execute([$id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    // Increment download counter
+    public function incrementDownload($id) {
+        $stmt = $this->pdo->prepare('UPDATE files SET download_count = download_count + 1 WHERE id = ?');
+        return $stmt->execute([$id]);
+    }
+
+    // Ambil files dengan filter access level
     public function allWithAccessLevel($level) {
         $level = (int)$level;
         $stmt = $this->pdo->prepare('
@@ -39,25 +65,6 @@ class FileModel {
             ORDER BY f.uploaded_at DESC
         ');
         $stmt->execute([$level]);
-        return $stmt->fetchAll();
-    }
-
-    // Cari file by id
-    public function find($id) {
-        $stmt = $this->pdo->prepare('SELECT * FROM files WHERE id = ?');
-        $stmt->execute([$id]);
-        return $stmt->fetch();
-    }
-
-    // Tambah hitungan download
-    public function incrementDownload($id) {
-        $stmt = $this->pdo->prepare('UPDATE files SET download_count = download_count + 1 WHERE id = ?');
-        return $stmt->execute([$id]);
-    }
-
-    // Update data file terenkripsi (ciphertext) setelah rotasi key
-    public function updateFileData($id, $newFileData) {
-        $stmt = $this->pdo->prepare('UPDATE files SET file_data = ? WHERE id = ?');
-        return $stmt->execute([$newFileData, $id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

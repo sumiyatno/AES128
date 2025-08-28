@@ -51,17 +51,22 @@ class UserController {
         return $this->fileController->canAccessFile($fileAccessLevel, $userRole);
     }
 
-        // Fungsi untuk cek akses fitur berdasarkan role
-        // $role: level role user (1=staff, 2=kasub, 3=kabid, 4=super admin)
-        // $feature: nama fitur ('upload', 'dashboard', 'create_label', 'manage_account', 'master_key', 'admin')
-        public function canAccessFeature($role, $feature) {
-            $role = (int)$role;
-            $features = [
-                1 => ['upload', 'dashboard', 'logout'],
-                2 => ['upload', 'dashboard', 'create_label', 'logout'],
-                3 => ['upload', 'dashboard', 'create_label', 'logout'],
-                4 => ['upload', 'dashboard', 'create_label', 'manage_account', 'manage', 'admin', 'master_key', 'register', 'logout']
-            ];
-            return in_array($feature, $features[$role] ?? []);
-        }
+    // Fungsi untuk cek akses fitur berdasarkan role
+    // $role: level role user (1=staff, 2=kasub, 3=kabid, 4=super admin)
+    // $feature: nama fitur ('upload', 'dashboard', 'create_label', 'manage_account', 'master_key', 'admin')
+    public function canAccessFeature($role, $feature) {
+        $role = (int)$role;
+        $features = [
+            1 => ['upload', 'dashboard','download'],
+            2 => ['upload', 'dashboard', 'create_label','download'],
+            3 => ['upload', 'dashboard', 'create_label','download'],
+            4 => ['upload', 'dashboard', 'create_label', 'manage_account', 'manage', 'admin', 'master_key', 'rotateKeyWithPasswords', 'register','download', 'logs']
+        ];
+        return in_array($feature, $features[$role] ?? []);
+    }
+
+    // Method khusus untuk cek akses key rotation
+    public function canRotateKey($role) {
+        return $this->canAccessFeature($role, 'master_key');
+    }
 }
