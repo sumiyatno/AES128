@@ -1,313 +1,299 @@
 <?php
+// filepath: d:\website\AES128\routes.php
 
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/controllers/FileController.php';
-require_once __DIR__ . '/controllers/LabelController.php';
+require_once __DIR__ . '/controllers/AuthController.php';
 require_once __DIR__ . '/controllers/UserController.php';
-require_once __DIR__ . '/controllers/LogController.php'; // Tambahkan ini
+require_once __DIR__ . '/controllers/LabelController.php';
 
-// Start session jika belum
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-$action = $_GET['action'] ?? '';
-$userController = new UserController($pdo);
-$role = $_SESSION['user_level'] ?? 1;
-
-// Mapping action ke feature yang ada di UserController
-$actionToFeature = [
-    'rotateKey' => 'master_key',
-    'rotateKeyWithPasswords' => 'master_key',  // ← TAMBAHAN INI
-    'rotate_form' => 'master_key',
-    'create_user' => 'manage_account',
-    'delete_user' => 'manage_account', 
-    'update_user' => 'manage_account'
-];
-
-// Logout tidak perlu pembatasan akses
-if ($action === 'logout') {
-    require_once __DIR__ . '/controllers/AuthController.php';
-    $auth = new AuthController($pdo);  // ← PASS PDO
-    $auth->logout();
-    header('Location: views/login.php');
-    exit;
-}
-
-// Tentukan feature berdasarkan action
-$feature = $actionToFeature[$action] ?? $action;
-
-// Gunakan fungsi pembatasan yang sudah ada di UserController (kecuali logout)
-if ($action !== 'logout' && !$userController->canAccessFeature($role, $feature)) {
-    http_response_code(403);
-    echo "❌ Anda tidak punya akses ke fitur ini.";
-    exit;
-}
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 switch ($action) {
-    // ============ Tambah User ============
-    case 'create_user':
-        $controller = new UserController($pdo);
-        $username = $_POST['username'] ?? '';
-        $password = $_POST['password'] ?? '';
-        $access_level_id = $_POST['access_level_id'] ?? '';
-        if ($username && $password && $access_level_id) {
-            $result = $controller->createUser($username, $password, $access_level_id);
-            if ($result) {
-                header('Location: views/manage_account.php?status=success');
-                exit;
-            } else {
-                header('Location: views/manage_account.php?status=error');
-                exit;
-            }
-        } else {
-            header('Location: views/manage_account.php?status=error');
-            exit;
-        }
-        break;
-
-    // ============ Hapus User ============
-    case 'delete_user':
-        $controller = new UserController($pdo);
-        $id = $_GET['id'] ?? null;
-        if ($id) {
-            $result = $controller->deleteUser($id);
-            if ($result) {
-                header('Location: views/manage_account.php?status=success');
-                exit;
-            } else {
-                header('Location: views/manage_account.php?status=error');
-                exit;
-            }
-        } else {
-            header('Location: views/manage_account.php?status=error');
-            exit;
-        }
-        break;
-
-   
     
-    // ============ Update User ============
-    case 'update_user':
-        $controller = new UserController($pdo);
-        $id = $_GET['id'] ?? null;
-        $username = $_POST['username'] ?? '';
-        $password = $_POST['password'] ?? '';
-        $access_level_id = $_POST['access_level_id'] ?? '';
-        if ($id && $username && $access_level_id) {
-            if (empty($password)) {
-                $user = $controller->getUser($id);
-                $password = $user ? $user['password'] : '';
-            }
-            $result = $controller->updateUser($id, $username, $password, $access_level_id);
-            if ($result) {
-                header('Location: views/manage_account.php?status=success');
-                exit;
-            } else {
-                header('Location: views/manage_account.php?status=error');
-                exit;
-            }
-        } else {
-            header('Location: views/manage_account.php?status=error');
-            exit;
-        }
-        break;
-
-    // ============ Registrasi User ============
-    case 'register':
+    // ============ EXISTING CASES ============
+    case 'login':
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $controller = new UserController($pdo);
+            $authController = new AuthController($pdo);
             $username = $_POST['username'] ?? '';
             $password = $_POST['password'] ?? '';
-            $access_level_id = $_POST['access_level_id'] ?? '';
-            if ($username && $password && $access_level_id) {
-                $result = $controller->createUser($username, $password, $access_level_id);
-                if ($result) {
-                    echo "✅ Registrasi berhasil! Silakan login.";
-                } else {
-                    echo "❌ Registrasi gagal! Username mungkin sudah digunakan.";
-                }
+            
+            if ($authController->login($username, $password)) {
+                header('Location: views/dashboard.php');
+                exit;
             } else {
-                echo "❌ Semua field harus diisi.";
-            }
-        } else {
-            echo "Gunakan POST untuk registrasi user";
-        }
-        break;
-
-    // ============ Upload File ============
-    case 'upload':
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
-            $controller = new FileController($pdo);
-
-            $file     = $_FILES['file'];
-            $labelId  = $_POST['label_id'] ?? null;
-            $password = $_POST['restricted_password'] ?? null;
-            $access_level_id = $_POST['access_level_id'] ?? null;
-            if (empty($access_level_id) || !is_numeric($access_level_id)) {
-                echo "❌ Upload gagal: Level akses harus dipilih!";
+                header('Location: views/login.php?error=invalid');
                 exit;
             }
-
-            try {
-                $controller->upload($file, $labelId, $access_level_id, $password);
-                echo "✅ File berhasil diupload";
-            } catch (Exception $e) {
-                http_response_code(500);
-                echo "❌ Upload gagal: " . $e->getMessage();
-            }
-        } else {
-            echo "Gunakan form POST untuk upload file";
         }
         break;
 
-    // ============ Buat Label ============
-    case 'create_label':
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $controller = new LabelController($pdo);
-
-            $name        = $_POST['name'] ?? null;
-            $description = $_POST['description'] ?? null;
-            $accessLevel = $_POST['access_level'] ?? null;
-
-            try {
-                $controller->create($name, $description, $accessLevel);
-                echo "✅ Label berhasil dibuat";
-            } catch (Exception $e) {
-                http_response_code(500);
-                echo "❌ Gagal membuat label: " . $e->getMessage();
-            }
-        } else {
-            echo "Gunakan POST untuk membuat label";
-        }
-        break;
-
-    // ============ Download File ============
-    case 'download':
-        $controller = new FileController($pdo);
-
-        $id       = $_GET['id'] ?? null;
-        $password = $_POST['password'] ?? null;
-
-        if ($id) {
-            try {
-                $controller->download($id, $password);
-            } catch (Exception $e) {
-                http_response_code(403);
-                echo "❌ Download gagal: " . $e->getMessage();
-            }
-        } else {
-            echo "ID file tidak diberikan";
-        }
-        break;
-
-    // ============ Tampilkan Form Rotate Key ============
-    case 'rotate_form':
-        require __DIR__ . '/views/model.php';
-        break;
-
-    // ============ Proses Rotate Key ============
-    case 'rotateKey':
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $controller = new FileController($pdo);
-            $newSecret  = $_POST['new_secret'] ?? null;
-
-            if (empty($newSecret)) {
-                header("Location: views/model.php?status=error&message=secret_empty");
-                exit;
-            }
-
-            try {
-                $result = $controller->rotateKeyAndUpdateDB($newSecret);
-                if ($result) {
-                    header("Location: views/model.php?status=success");
-                    exit;
-                } else {
-                    header("Location: views/model.php?status=error&message=process_failed");
-                    exit;
-                }
-            } catch (Exception $e) {
-                // Log error untuk debugging
-                error_log("Key rotation error in routes.php: " . $e->getMessage());
-                header("Location: views/model.php?status=error&message=" . urlencode($e->getMessage()));
-                exit;
-            }
-        } else {
-            echo "Gunakan form POST untuk rotate key";
-        }
-        break;
-
-    // ============ Proses Rotate Key dengan Password ============
-    case 'rotateKeyWithPasswords':
-        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-            $controller = new FileController($pdo);
-            $newSecret  = $_POST['new_secret'] ?? null;
-            $restrictedPasswords = $_POST['restricted_passwords'] ?? [];
-
-            if (empty($newSecret)) {
-                header("Location: views/model.php?status=error&message=secret_empty");
-                exit;
-            }
-
-            try {
-                $result = $controller->rotateKeyAndUpdateDBWithPasswords($newSecret, $restrictedPasswords);
-                if ($result) {
-                    header("Location: views/model.php?status=success");
-                    exit;
-                } else {
-                    header("Location: views/model.php?status=error&message=process_failed");
-                    exit;
-                }
-            } catch (Exception $e) {
-                error_log("Key rotation with passwords error: " . $e->getMessage());
-                header("Location: views/model.php?status=error&message=" . urlencode($e->getMessage()));
-                exit;
-            }
-        } else {
-            echo "Gunakan form POST untuk rotate key";
-        }
-        break;
-
-    // ============ Log Management ============
-    case 'logs':
-        // Redirect ke view logs
-        header("Location: views/logs.php");
+    case 'logout':
+        session_destroy();
+        header('Location: views/login.php');
         exit;
         break;
 
-    case 'export_logs':
-        if (!$userController->canAccessFeature($role, 'admin')) {
-            http_response_code(403);
-            echo "❌ Access denied!";
+    case 'upload':
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $controller = new FileController($pdo);
+            
+            try {
+                $result = $controller->upload(
+                    $_FILES['file'],
+                    $_POST['label_id'],
+                    $_POST['access_level_id'],
+                    $_POST['restricted_password'] ?? null
+                );
+                
+                if ($result) {
+                    header('Location: views/dashboard.php?status=upload_success');
+                } else {
+                    header('Location: views/upload_form.php?error=upload_failed');
+                }
+            } catch (Exception $e) {
+                header('Location: views/upload_form.php?error=' . urlencode($e->getMessage()));
+            }
+            exit;
+        }
+        break;
+
+    case 'download':
+        $controller = new FileController($pdo);
+        $id = $_GET['id'] ?? '';
+        $password = $_POST['password'] ?? $_GET['password'] ?? null;
+        
+        try {
+            $controller->download($id, $password);
+        } catch (Exception $e) {
+            echo "Error: " . $e->getMessage();
+        }
+        break;
+
+    case 'rotateKey':
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $controller = new FileController($pdo);
+            $newSecret = $_POST['new_secret'] ?? '';
+            
+            try {
+                $result = $controller->rotateKeyAndUpdateDB($newSecret);
+                if ($result) {
+                    header('Location: views/model.php?status=success');
+                } else {
+                    header('Location: views/model.php?status=error&message=process_failed');
+                }
+            } catch (Exception $e) {
+                header('Location: views/model.php?status=error&message=' . urlencode($e->getMessage()));
+            }
+            exit;
+        }
+        break;
+
+    case 'rotateKeyWithPasswords':
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $controller = new FileController($pdo);
+            $newSecret = $_POST['new_secret'] ?? '';
+            $restrictedPasswords = $_POST['restricted_passwords'] ?? [];
+            
+            try {
+                $result = $controller->rotateKeyAndUpdateDBWithPasswords($newSecret, $restrictedPasswords);
+                if ($result) {
+                    header('Location: views/model.php?status=success');
+                } else {
+                    header('Location: views/model.php?status=error&message=process_failed');
+                }
+            } catch (Exception $e) {
+                header('Location: views/model.php?status=error&message=' . urlencode($e->getMessage()));
+            }
+            exit;
+        }
+        break;
+
+    // ============ TAMBAHAN: System Lock Toggle ============
+    case 'toggle_filename_lock':
+        // Set header JSON response
+        header('Content-Type: application/json');
+        
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            // Cek authentication
+            if (!isset($_SESSION['user_id'])) {
+                http_response_code(401);
+                echo json_encode([
+                    'success' => false, 
+                    'message' => 'Authentication required'
+                ]);
+                exit;
+            }
+            
+            // Cek superadmin role
+            $userLevel = $_SESSION['user_level'] ?? 1;
+            if ($userLevel != 4) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false, 
+                    'message' => 'Access denied: Only superadmin can change display mode'
+                ]);
+                exit;
+            }
+            
+            $controller = new FileController($pdo);
+            $mode = $_POST['mode'] ?? 'normal';
+            
+            try {
+                $result = $controller->setFilenameDisplayMode($mode, $_SESSION['user_id']);
+                if ($result) {
+                    echo json_encode([
+                        'success' => true,
+                        'mode' => $mode,
+                        'message' => $mode === 'encrypted' ? 'Filename lock activated' : 'Filename lock deactivated'
+                    ]);
+                } else {
+                    echo json_encode([
+                        'success' => false, 
+                        'message' => 'Failed to update mode'
+                    ]);
+                }
+            } catch (Exception $e) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false, 
+                    'message' => $e->getMessage()
+                ]);
+            }
+        } else {
+            http_response_code(405);
+            echo json_encode([
+                'success' => false, 
+                'message' => 'Method not allowed. Use POST.'
+            ]);
+        }
+        exit;
+        break;
+
+    // ============ TAMBAHAN: Get Current Lock Status ============
+    case 'get_filename_lock_status':
+        header('Content-Type: application/json');
+        
+        if (!isset($_SESSION['user_id'])) {
+            http_response_code(401);
+            echo json_encode([
+                'success' => false, 
+                'message' => 'Authentication required'
+            ]);
             exit;
         }
         
-        $logController = new LogController($pdo);
-        $filter = [
-            'action' => $_GET['action_filter'] ?? '',
-            'status' => $_GET['status_filter'] ?? '',
-            'user_id' => $_GET['user_filter'] ?? '',
-            'date_from' => $_GET['date_from'] ?? '',
-            'date_to' => $_GET['date_to'] ?? ''
-        ];
-        
-        $logController->exportToCSV($filter);
+        try {
+            // Cek apakah table system_settings ada
+            $stmt = $pdo->prepare("SHOW TABLES LIKE 'system_settings'");
+            $stmt->execute();
+            $tableExists = $stmt->fetch();
+            
+            if ($tableExists) {
+                $stmt = $pdo->prepare('SELECT setting_value FROM system_settings WHERE setting_key = ?');
+                $stmt->execute(['filename_display_mode']);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+                $mode = $result ? $result['setting_value'] : 'normal';
+                
+                echo json_encode([
+                    'success' => true,
+                    'mode' => $mode,
+                    'is_locked' => ($mode === 'encrypted')
+                ]);
+            } else {
+                echo json_encode([
+                    'success' => false,
+                    'mode' => 'normal',
+                    'is_locked' => false,
+                    'message' => 'System settings table not found'
+                ]);
+            }
+        } catch (Exception $e) {
+            echo json_encode([
+                'success' => false, 
+                'message' => $e->getMessage()
+            ]);
+        }
+        exit;
         break;
 
-    // ============ Default (dashboard) ============
-    default:
-        $controller = new FileController($pdo);
-        $files = $controller->dashboard();
-
-        echo "<h2>📂 Dashboard</h2>";
-        echo "<ul>";
-        foreach ($files as $f) {
-            echo "<li>";
-            echo htmlspecialchars($f['decrypted_name']);
-            echo " - <a href='?action=download&id=" . urlencode($f['id']) . "'>Download</a>";
-            echo "</li>";
+    // ============ TAMBAHAN: Setup System Settings ============
+    case 'setup_system_settings':
+        header('Content-Type: application/json');
+        
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            // Cek authentication
+            if (!isset($_SESSION['user_id'])) {
+                http_response_code(401);
+                echo json_encode([
+                    'success' => false, 
+                    'message' => 'Authentication required'
+                ]);
+                exit;
+            }
+            
+            // Cek superadmin role
+            $userLevel = $_SESSION['user_level'] ?? 1;
+            if ($userLevel != 4) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false, 
+                    'message' => 'Access denied: Only superadmin can setup system settings'
+                ]);
+                exit;
+            }
+            
+            try {
+                // Create system_settings table
+                $sql = "
+                    CREATE TABLE IF NOT EXISTS system_settings (
+                        id INT PRIMARY KEY AUTO_INCREMENT,
+                        setting_key VARCHAR(50) UNIQUE NOT NULL,
+                        setting_value TEXT,
+                        updated_by INT NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_setting_key (setting_key),
+                        FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE
+                    )
+                ";
+                $pdo->exec($sql);
+                
+                // Insert default setting
+                $stmt = $pdo->prepare("
+                    INSERT INTO system_settings (setting_key, setting_value, updated_by) 
+                    VALUES ('filename_display_mode', 'normal', ?)
+                    ON DUPLICATE KEY UPDATE setting_value = setting_value
+                ");
+                $stmt->execute([$_SESSION['user_id']]);
+                
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'System settings table created successfully'
+                ]);
+            } catch (Exception $e) {
+                echo json_encode([
+                    'success' => false, 
+                    'message' => $e->getMessage()
+                ]);
+            }
+        } else {
+            http_response_code(405);
+            echo json_encode([
+                'success' => false, 
+                'message' => 'Method not allowed. Use POST.'
+            ]);
         }
-        echo "</ul>";
-        echo "<p><a href='?action=rotate_form'>🔑 Rotate Master Key</a></p>";
+        exit;
+        break;
+
+    // ============ DEFAULT CASE ============
+    default:
+        http_response_code(404);
+        echo "Action not found";
         break;
 }
+?>

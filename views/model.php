@@ -22,6 +22,28 @@ if (!$userController->canAccessFeature($role, 'master_key')) {
 $stmt = $pdo->prepare('SELECT id, filename, original_filename FROM files WHERE restricted_password_hash IS NOT NULL');
 $stmt->execute();
 $restrictedFiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// TAMBAHAN: Cek current lock status dengan error handling
+$isSystemLocked = false;
+$lockStatusError = false;
+try {
+    // Cek apakah table system_settings ada
+    $stmt = $pdo->prepare("SHOW TABLES LIKE 'system_settings'");
+    $stmt->execute();
+    $tableExists = $stmt->fetch();
+    
+    if ($tableExists) {
+        $stmt = $pdo->prepare('SELECT setting_value FROM system_settings WHERE setting_key = ?');
+        $stmt->execute(['filename_display_mode']);
+        $currentLockMode = $stmt->fetch(PDO::FETCH_ASSOC);
+        $isSystemLocked = $currentLockMode && $currentLockMode['setting_value'] === 'encrypted';
+    } else {
+        $lockStatusError = "System settings table not found";
+    }
+} catch (Exception $e) {
+    $lockStatusError = $e->getMessage();
+    error_log("Lock status check error: " . $e->getMessage());
+}
 ?>
 
 <?php include __DIR__ . '/sidebar.php'; ?>
@@ -127,11 +149,140 @@ $restrictedFiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
             color: #6c757d;
             margin-bottom: 8px;
         }
+        
+        /* TAMBAHAN: Trigger controls */
+        .trigger-controls {
+            background: #e8f4f8;
+            border: 1px solid #bee5eb;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+        
+        .trigger-btn {
+            background: #17a2b8;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 5px;
+            font-weight: bold;
+        }
+        
+        .trigger-btn:hover {
+            background: #138496;
+        }
+        
+        .trigger-info {
+            background: #d1ecf1;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            font-size: 14px;
+        }
+        
+        /* TAMBAHAN: Lock status indicator */
+        .system-status {
+            background: <?= $isSystemLocked ? '#f8d7da' : '#d4edda' ?>;
+            border: 1px solid <?= $isSystemLocked ? '#f5c6cb' : '#c3e6cb' ?>;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .status-badge {
+            background: <?= $isSystemLocked ? '#dc3545' : '#28a745' ?>;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .status-error {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: #856404;
+        }
+        
+        .setup-button {
+            background: #ffc107;
+            color: #212529;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            text-decoration: none;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .setup-button:hover {
+            background: #e0a800;
+        }
     </style>
 </head>
 <body>
 <div class="container">
     <h1>🔄 Rotate Master Key</h1>
+    
+    <!-- TAMBAHAN: System Lock Status dengan Error Handling -->
+    <?php if ($lockStatusError): ?>
+    <div class="status-error">
+        <strong>⚠️ System Settings Warning:</strong>
+        <?= htmlspecialchars($lockStatusError) ?>
+        <a href="#" onclick="setupSystemSettings()" class="setup-button">
+            🔧 Setup System Settings
+        </a>
+        <div style="margin-top: 10px; font-size: 14px;">
+            The filename lock feature requires the system_settings table. Click setup to create it.
+        </div>
+    </div>
+    <?php else: ?>
+    <div class="system-status">
+        <strong>🔒 Current System Status:</strong>
+        <span class="status-badge">
+            <?= $isSystemLocked ? '🔒 FILENAMES LOCKED' : '🔓 FILENAMES UNLOCKED' ?>
+        </span>
+        <p style="margin: 10px 0 0 0; font-size: 14px;">
+            <?= $isSystemLocked 
+                ? 'All users currently see encrypted filenames. Use dashboard controls to unlock.' 
+                : 'Users can see normal filenames. Use dashboard controls to enable system-wide lock.' ?>
+        </p>
+    </div>
+    <?php endif; ?>
+    
+    <!-- TAMBAHAN: Trigger Controls untuk Superadmin -->
+    <?php if ($role == 4): ?>
+    <div class="trigger-controls">
+        <h3>🔧 Superadmin Dashboard Controls</h3>
+        <p>Gunakan trigger ini untuk mengubah tampilan nama file di dashboard:</p>
+        
+        <a href="dashboard.php" class="trigger-btn">
+            📂 View Dashboard (Respect Lock)
+        </a>
+        
+        <a href="dashboard.php?show_encrypted=1" class="trigger-btn">
+            🔐 View Dashboard (Force Encrypted)
+        </a>
+        
+        <div class="trigger-info">
+            <strong>ℹ️ System Lock vs Admin Override:</strong> 
+            <ul>
+                <li><strong>System Lock:</strong> Affects ALL users globally - controlled via dashboard toggle</li>
+                <li><strong>Admin Override:</strong> Only affects your view - temporary override of system lock</li>
+                <li><strong>Normal Mode:</strong> Respects current system lock setting</li>
+                <li><strong>Force Encrypted:</strong> Shows encrypted view regardless of system lock</li>
+            </ul>
+        </div>
+    </div>
+    <?php endif; ?>
     
     <?php if (isset($_GET['status'])): ?>
         <?php if ($_GET['status'] === 'success'): ?>
@@ -210,5 +361,29 @@ $restrictedFiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <?php endif; ?>
 
 </div>
+
+<!-- TAMBAHAN: JavaScript untuk setup system settings -->
+<script>
+function setupSystemSettings() {
+    if (confirm('This will create the system_settings table for filename lock feature. Continue?')) {
+        fetch('../routes.php?action=setup_system_settings', {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('System settings table created successfully!');
+                location.reload();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Network error occurred');
+        });
+    }
+}
+</script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 <?php
+// filepath: d:\website\AES128\controllers\FileController.php
 
 require_once __DIR__ . "/../models/File.php";
 require_once __DIR__ . "/../models/Label.php";
@@ -9,24 +10,14 @@ class FileController {
     private $pdo;
     private $fileModel;
     private $labelModel;
-    private $logController; // TAMBAHAN: untuk logging
-
-    // Fungsi pembatasan hak akses file
-    // $fileAccessLevel: level akses file (1,2,3)
-    // $userRole: role user (1=staff, 2=kasub, 3=kabid, 4=super admin)
-    public function canAccessFile($fileAccessLevel, $userRole) {
-        // Super admin (role 4) bisa akses semua file
-        if ($userRole == 4) return true;
-        // Role lain hanya bisa akses file dengan level <= role
-        return $userRole >= $fileAccessLevel;
-    }
+    private $logController;
 
     public function __construct($pdo) {
-        $this->pdo        = $pdo;
-        $this->fileModel  = new FileModel($pdo);
+        $this->pdo = $pdo;
+        $this->fileModel = new FileModel($pdo);
         $this->labelModel = new Label($pdo);
         
-        // TAMBAHAN: LogController dengan error handling
+        // LogController dengan error handling
         try {
             require_once __DIR__ . '/LogController.php';
             $this->logController = new LogController($pdo);
@@ -36,7 +27,35 @@ class FileController {
         }
     }
 
-    // TAMBAHAN: Helper method untuk safe logging
+    // ================= ACCESS CONTROL =================
+    
+    /**
+     * Fungsi pembatasan hak akses file
+     * $fileAccessLevel: level akses file (1,2,3,4)
+     * $userRole: role user (1=staff, 2=kasub, 3=kabid, 4=super admin)
+     */
+    public function canAccessFile($fileAccessLevel, $userRole) {
+        // Super admin (role 4) bisa akses semua file
+        if ($userRole == 4) return true;
+        // Role lain hanya bisa akses file dengan level <= role
+        return $userRole >= $fileAccessLevel;
+    }
+
+    /**
+     * Cek apakah user sudah login
+     */
+    public function isAuthenticated() {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        return isset($_SESSION['user_id']);
+    }
+
+    // ================= LOGGING HELPER =================
+    
+    /**
+     * Helper method untuk safe logging
+     */
     private function safeLog($action, $status = 'success', $targetType = null, $targetId = null, $targetName = null, $details = null) {
         try {
             if ($this->logController) {
@@ -48,37 +67,40 @@ class FileController {
         return false;
     }
 
-    // ================= Upload (FUNGSI ASLI + LOGGING) =================
+    // ================= FILE OPERATIONS =================
+    
+    /**
+     * Upload file dengan enkripsi dan logging
+     */
     public function upload($file, $label_id, $access_level_id, $restricted_password = null) {
+        $fileId = uniqid("file_");
+        
         try {
             $label = $this->labelModel->find($label_id);
             if (!$label) {
                 throw new RuntimeException("Label tidak ditemukan");
             }
 
-            $fileId     = uniqid("file_");
-            $userSecret = $restricted_password ? $restricted_password : null;
+            $userSecret = $restricted_password ?: null;
 
-            // FUNGSI ASLI: password hash untuk restricted
+            // Password hash untuk restricted files
             $restrictedPasswordHash = null;
             if ($label['access_level'] === 'restricted' && $restricted_password) {
                 $restrictedPasswordHash = password_hash($restricted_password, PASSWORD_ARGON2ID);
             }
 
+            // Enkripsi file
             $tmpEncPath = sys_get_temp_dir() . "/enc_" . $fileId;
-            $srcPath  = $file['tmp_name'];
-            $origName = $file['name'];
-            $dstPath  = $tmpEncPath;
-
-            encrypt_file($srcPath, $dstPath, $fileId, $origName, $userSecret);
+            encrypt_file($file['tmp_name'], $tmpEncPath, $fileId, $file['name'], $userSecret);
             $encData = file_get_contents($tmpEncPath);
 
-            // FUNGSI ASLI: Simpan ke DB dengan query yang sama persis
+            // Simpan ke database
             $stmt = $this->pdo->prepare('
                 INSERT INTO files 
                 (filename, original_filename, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ');
+            
             $result = $stmt->execute([
                 $fileId,
                 base64_encode($file['name']),
@@ -86,51 +108,39 @@ class FileController {
                 $encData,
                 $label_id,
                 $access_level_id,
-                "", // iv
+                "",
                 $restrictedPasswordHash
             ]);
 
             if ($result) {
-                // TAMBAHAN: LOG UPLOAD SUCCESS
-                $this->safeLog(
-                    'upload', 
-                    'success', 
-                    'file', 
-                    $fileId, 
-                    $origName, 
-                    [
-                        'file_size' => $file['size'],
-                        'mime_type' => $file['type'],
-                        'label_id' => $label_id,
-                        'access_level_id' => $access_level_id,
-                        'access_level' => $label['access_level'],
-                        'restricted' => !empty($restricted_password) ? 'yes' : 'no'
-                    ]
-                );
+                // Log upload success
+                $this->safeLog('upload', 'success', 'file', $fileId, $file['name'], [
+                    'file_size' => $file['size'],
+                    'mime_type' => $file['type'],
+                    'label_id' => $label_id,
+                    'access_level_id' => $access_level_id,
+                    'access_level' => $label['access_level'],
+                    'restricted' => !empty($restricted_password) ? 'yes' : 'no'
+                ]);
             }
 
             unlink($tmpEncPath);
             return true;
             
         } catch (Exception $e) {
-            // TAMBAHAN: LOG UPLOAD FAILED
-            $this->safeLog(
-                'upload', 
-                'failed', 
-                'file', 
-                $fileId ?? 'unknown', 
-                $file['name'] ?? 'unknown', 
-                [
-                    'error' => $e->getMessage(),
-                    'label_id' => $label_id ?? 'unknown',
-                    'access_level_id' => $access_level_id ?? 'unknown'
-                ]
-            );
+            // Log upload failed
+            $this->safeLog('upload', 'failed', 'file', $fileId, $file['name'] ?? 'unknown', [
+                'error' => $e->getMessage(),
+                'label_id' => $label_id ?? 'unknown',
+                'access_level_id' => $access_level_id ?? 'unknown'
+            ]);
             throw $e;
         }
     }
 
-    // ================= Download (FUNGSI ASLI + LOGGING) =================
+    /**
+     * Download file dengan dekripsi dan logging
+     */
     public function download($id, $password = null) {
         try {
             $file = $this->fileModel->find($id);
@@ -140,62 +150,43 @@ class FileController {
 
             $origName = base64_decode($file['original_filename']);
 
-            // FUNGSI ASLI: restricted check
+            // Validasi restricted password
             if (!empty($file['restricted_password_hash'])) {
                 if (empty($password) || !password_verify($password, $file['restricted_password_hash'])) {
-                    // TAMBAHAN: LOG DOWNLOAD FAILED - WRONG PASSWORD
-                    $this->safeLog(
-                        'download', 
-                        'failed', 
-                        'file', 
-                        $file['filename'], 
-                        $origName, 
-                        [
-                            'reason' => 'invalid_password',
-                            'file_id' => $id
-                        ]
-                    );
+                    $this->safeLog('download', 'failed', 'file', $file['filename'], $origName, [
+                        'reason' => 'invalid_password',
+                        'file_id' => $id
+                    ]);
                     throw new RuntimeException("Password salah untuk file restricted!");
                 }
             }
 
-            $fileId     = $file['filename'];
+            $fileId = $file['filename'];
             $userSecret = $password ?: null;
 
-            // FUNGSI ASLI: simpan ciphertext ke temp file
+            // Dekripsi file menggunakan temporary files
             $tmpEnc = sys_get_temp_dir() . "/dl_" . $fileId . ".enc";
             $tmpOut = sys_get_temp_dir() . "/dl_" . $fileId;
 
             file_put_contents($tmpEnc, $file['file_data']);
-
-            // FUNGSI ASLI: Sesuaikan ke crypto.php
             decrypt_file($tmpEnc, $tmpOut, $fileId, $origName, $userSecret);
-
-            // FUNGSI ASLI: baca hasil
             $plaintext = file_get_contents($tmpOut);
 
-            // FUNGSI ASLI: hapus temp
+            // Cleanup temporary files
             unlink($tmpEnc);
             unlink($tmpOut);
 
-            // FUNGSI ASLI: increment download
+            // Increment download counter
             $this->fileModel->incrementDownload($id);
 
-            // TAMBAHAN: LOG DOWNLOAD SUCCESS
-            $this->safeLog(
-                'download', 
-                'success', 
-                'file', 
-                $fileId, 
-                $origName, 
-                [
-                    'file_id' => $id,
-                    'file_size' => strlen($plaintext),
-                    'restricted' => !empty($password) ? 'yes' : 'no'
-                ]
-            );
+            // Log download success
+            $this->safeLog('download', 'success', 'file', $fileId, $origName, [
+                'file_id' => $id,
+                'file_size' => strlen($plaintext),
+                'restricted' => !empty($password) ? 'yes' : 'no'
+            ]);
 
-            // FUNGSI ASLI: kirim ke browser
+            // Send file to browser
             $mime = base64_decode($file['mime_type']);
             header("Content-Type: $mime");
             header("Content-Disposition: attachment; filename=\"$origName\"");
@@ -203,260 +194,388 @@ class FileController {
             exit;
             
         } catch (Exception $e) {
-            // TAMBAHAN: LOG DOWNLOAD FAILED
-            $this->safeLog(
-                'download', 
-                'failed', 
-                'file', 
-                $file['filename'] ?? 'unknown', 
-                $origName ?? 'unknown', 
-                [
+            $this->safeLog('download', 'failed', 'file', $file['filename'] ?? 'unknown', 
+                $origName ?? 'unknown', [
                     'error' => $e->getMessage(),
                     'file_id' => $id
-                ]
-            );
+                ]);
             throw $e;
         }
     }
 
-    // ================= Dashboard (FUNGSI ASLI) =================
-    public function dashboard() {
+    // ================= DASHBOARD & DISPLAY =================
+    
+    /**
+     * Dashboard dengan toggle encrypted untuk superadmin
+     */
+    public function dashboard($showEncrypted = false) {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
+        
         $level = $_SESSION['user_level'] ?? 1;
         $files = $this->fileModel->allWithAccessLevel($level);
-        foreach ($files as &$f) {
-            // Cek apakah label restricted/private
-            if (isset($f["label_access_level_enum"]) && 
-                ($f["label_access_level_enum"] === 'restricted' || $f["label_access_level_enum"] === 'private')) {
-                $f["decrypted_name"] = "[Restricted/Private]";
-            } else {
-                $f["decrypted_name"] = base64_decode($f["original_filename"]);
-            }
+        
+        // Cek mode display global dari database
+        $globalMode = $this->getFilenameDisplayMode();
+        
+        // Superadmin bisa override dengan parameter
+        $showEncrypted = ($level == 4 && $showEncrypted) ? true : ($globalMode === 'encrypted');
+        
+        return $this->processFilenamesForDisplay($files, $level, $showEncrypted, $globalMode);
+    }
+
+    /**
+     * Search and filter dengan toggle encrypted untuk superadmin
+     */
+    public function searchAndFilter($searchTerm = '', $labelFilter = '', $showEncrypted = false) {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
         }
+        
+        $userLevel = $_SESSION['user_level'] ?? 1;
+        
+        // Build query dengan filters
+        $sql = '
+            SELECT f.*, l.name AS label_name, l.access_level AS label_access_level_enum,
+                   al.level AS file_access_level_level, al.name AS file_access_level_name
+            FROM files f
+            JOIN labels l ON f.label_id = l.id
+            LEFT JOIN access_levels al ON f.access_level_id = al.id
+            WHERE f.access_level_id <= ?
+        ';
+        
+        $params = [$userLevel];
+        
+        // Add search filter (di mode encrypted, search tetap berdasarkan nama asli)
+        if (!empty($searchTerm)) {
+            $sql .= ' AND f.original_filename LIKE ?';
+            $params[] = '%' . base64_encode($searchTerm) . '%';
+        }
+        
+        // Add label filter
+        if (!empty($labelFilter)) {
+            $sql .= ' AND f.label_id = ?';
+            $params[] = $labelFilter;
+        }
+        
+        $sql .= ' ORDER BY f.uploaded_at DESC';
+        
+        try {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+            $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Cek mode display global
+            $globalMode = $this->getFilenameDisplayMode();
+            $showEncrypted = ($userLevel == 4 && $showEncrypted) ? true : ($globalMode === 'encrypted');
+            
+            return $this->processFilenamesForDisplay($files, $userLevel, $showEncrypted, $globalMode);
+            
+        } catch (Exception $e) {
+            error_log("Search and filter error: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Process filenames untuk display dengan sistem lock global
+     */
+    private function processFilenamesForDisplay($files, $userLevel, $showEncrypted = false, $globalMode = 'normal') {
+        foreach ($files as &$f) {
+            if ($showEncrypted) {
+                // Mode encrypted: tampilkan nama ter-encrypt dengan AES-256
+                $f["decrypted_name"] = $this->encryptFilenameAES256($f["original_filename"]);
+                $f["display_mode"] = "encrypted";
+            } else {
+                // Mode normal: cek restricted/private atau decode nama asli
+                if (isset($f["label_access_level_enum"]) && 
+                    ($f["label_access_level_enum"] === 'restricted' || $f["label_access_level_enum"] === 'private')) {
+                    $f["decrypted_name"] = "[Restricted/Private]";
+                } else {
+                    $f["decrypted_name"] = base64_decode($f["original_filename"]);
+                }
+                $f["display_mode"] = "normal";
+            }
+            
+            // Tambah info global mode
+            $f["global_mode"] = $globalMode;
+            $f["is_locked"] = ($globalMode === 'encrypted');
+        }
+        
         return $files;
     }
 
-    // ================= Key Rotate (FUNGSI ASLI + LOGGING) =================
+    /**
+     * Encrypt filename dengan AES-256 untuk display superadmin
+     */
+    private function encryptFilenameAES256($base64Filename) {
+        try {
+            // Load environment variables
+            if (file_exists(__DIR__ . '/../config/.env')) {
+                $lines = file(__DIR__ . '/../config/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+                foreach ($lines as $line) {
+                    if (strpos($line, '=') !== false && strpos($line, '#') !== 0) {
+                        list($key, $value) = explode('=', $line, 2);
+                        $_ENV[trim($key)] = trim($value);
+                    }
+                }
+            }
+            
+            $masterSecret = $_ENV['MASTER_SECRET'] ?? 'default_secret_key_for_display';
+            $originalName = base64_decode($base64Filename);
+            
+            // Encrypt dengan AES-256-CBC
+            $key = hash('sha256', $masterSecret . 'filename_display_encryption', true);
+            $iv = openssl_random_pseudo_bytes(16);
+            $encrypted = openssl_encrypt($originalName, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv);
+            
+            if ($encrypted === false) {
+                return "[Encryption Error]";
+            }
+            
+            $encryptedWithIv = base64_encode($iv . $encrypted);
+            return "🔐 " . substr($encryptedWithIv, 0, 32) . "...";
+            
+        } catch (Exception $e) {
+            error_log("Filename encryption error: " . $e->getMessage());
+            return "[Encryption Error]";
+        }
+    }
+
+    // ================= KEY ROTATION =================
+    
+    /**
+     * Rotate master key dan update semua file di database
+     */
     public function rotateKeyAndUpdateDB($newSecret) {
+        return $this->performKeyRotation($newSecret, []);
+    }
+
+    /**
+     * Rotate master key dengan password map untuk restricted files
+     */
+    public function rotateKeyAndUpdateDBWithPasswords($newSecret, array $restrictedPasswordMap) {
+        return $this->performKeyRotation($newSecret, $restrictedPasswordMap);
+    }
+
+    /**
+     * Core method untuk key rotation
+     */
+    private function performKeyRotation($newSecret, $restrictedPasswordMap = []) {
+        $tempFiles = [];
+        $logAction = empty($restrictedPasswordMap) ? 'rotate_key' : 'rotate_key_with_passwords';
+        
         try {
             // Validasi input
             if (empty(trim($newSecret))) {
                 throw new RuntimeException("Secret tidak boleh kosong");
             }
 
-            // Pass PDO ke rotator untuk query restricted password
-            $rotator = new CryptoKeyRotate($newSecret, null, $this->pdo);
-
-            // ambil semua file dari DB
+            // Setup rotator
+            $rotator = new CryptoKeyRotate($newSecret, null, $this->pdo, $restrictedPasswordMap);
             $files = $this->fileModel->all();
             
             if (empty($files)) {
-                // Jika tidak ada file, langsung update .env
                 $rotator->rotateFiles([]);
-                
-                // TAMBAHAN: LOG KEY ROTATION SUCCESS (no files)
-                $this->safeLog(
-                    'rotate_key', 
-                    'success', 
-                    'system', 
-                    'master_key', 
-                    'Master Key Rotation', 
-                    [
-                        'files_processed' => 0,
-                        'new_secret_length' => strlen($newSecret)
-                    ]
-                );
-                
+                $this->safeLog($logAction, 'success', 'system', 'master_key', 'Master Key Rotation', [
+                    'files_processed' => 0,
+                    'restricted_files' => count($restrictedPasswordMap),
+                    'new_secret_length' => strlen($newSecret)
+                ]);
                 return true;
             }
 
-            $tempFiles = [];
-
+            // Prepare temporary files
             foreach ($files as $f) {
-                $fileId   = $f['filename'];
+                $fileId = $f['filename'];
                 $origName = base64_decode($f['original_filename']);
-
-                // buat file sementara
                 $tmpEnc = sys_get_temp_dir() . "/rotate_" . $fileId . "_" . time() . ".enc";
+                
                 file_put_contents($tmpEnc, $f['file_data']);
-
-                // simpan mapping untuk diproses oleh rotator (tambahkan dbId)
+                
                 $tempFiles[] = [
-                    'encPath'  => $tmpEnc,
-                    'fileId'   => $fileId,
+                    'encPath' => $tmpEnc,
+                    'fileId' => $fileId,
                     'origName' => $origName,
-                    'dbId'     => $f['id'] // Penting: pass dbId untuk query restricted password
+                    'dbId' => $f['id']
                 ];
             }
 
-            // jalankan rotasi file
+            // Perform rotation
             $rotator->rotateFiles($tempFiles);
 
-            // setelah rotate → baca ulang hasilnya, simpan ke DB
+            // Update database dengan file baru
             foreach ($tempFiles as $tmp) {
                 if (file_exists($tmp['encPath'])) {
                     $newCipher = file_get_contents($tmp['encPath']);
                     $this->fileModel->updateFileData($tmp['dbId'], $newCipher);
                 }
-
-                // hapus file sementara
                 @unlink($tmp['encPath']);
             }
 
-            // TAMBAHAN: LOG KEY ROTATION SUCCESS
-            $this->safeLog(
-                'rotate_key', 
-                'success', 
-                'system', 
-                'master_key', 
-                'Master Key Rotation', 
-                [
-                    'files_processed' => count($tempFiles),
-                    'new_secret_length' => strlen($newSecret)
-                ]
-            );
+            // Log success
+            $this->safeLog($logAction, 'success', 'system', 'master_key', 'Master Key Rotation', [
+                'files_processed' => count($tempFiles),
+                'restricted_files' => count($restrictedPasswordMap),
+                'new_secret_length' => strlen($newSecret)
+            ]);
 
             return true;
             
         } catch (Exception $e) {
-            // Log error untuk debugging
             error_log("Key rotation failed: " . $e->getMessage());
             
-            // TAMBAHAN: LOG KEY ROTATION FAILED
-            $this->safeLog(
-                'rotate_key', 
-                'failed', 
-                'system', 
-                'master_key', 
-                'Master Key Rotation', 
-                [
-                    'error' => $e->getMessage(),
-                    'files_to_process' => count($tempFiles ?? [])
-                ]
-            );
-            
-            // Cleanup temporary files jika ada error
-            if (isset($tempFiles)) {
-                foreach ($tempFiles as $tmp) {
-                    @unlink($tmp['encPath']);
-                }
-            }
-            
-            throw new RuntimeException("Gagal melakukan rotasi key: " . $e->getMessage());
-        }
-    }
-
-    // ================= Key Rotate dengan Password Map (FUNGSI ASLI + LOGGING) =================
-    public function rotateKeyAndUpdateDBWithPasswords($newSecret, array $restrictedPasswordMap) {
-        try {
-            // Validasi input
-            if (empty(trim($newSecret))) {
-                throw new RuntimeException("Secret tidak boleh kosong");
-            }
-
-            // Pass PDO dan password map ke rotator
-            $rotator = new CryptoKeyRotate($newSecret, null, $this->pdo, $restrictedPasswordMap);
-
-            // ambil semua file dari DB
-            $files = $this->fileModel->all();
-            
-            if (empty($files)) {
-                $rotator->rotateFiles([]);
-                
-                // TAMBAHAN: LOG KEY ROTATION SUCCESS (no files)
-                $this->safeLog(
-                    'rotate_key_with_passwords', 
-                    'success', 
-                    'system', 
-                    'master_key', 
-                    'Master Key Rotation with Passwords', 
-                    [
-                        'files_processed' => 0,
-                        'restricted_files' => count($restrictedPasswordMap)
-                    ]
-                );
-                
-                return true;
-            }
-
-            $tempFiles = [];
-
-            foreach ($files as $f) {
-                $fileId   = $f['filename'];
-                $origName = base64_decode($f['original_filename']);
-
-                $tmpEnc = sys_get_temp_dir() . "/rotate_" . $fileId . "_" . time() . ".enc";
-                file_put_contents($tmpEnc, $f['file_data']);
-
-                $tempFiles[] = [
-                    'encPath'  => $tmpEnc,
-                    'fileId'   => $fileId,
-                    'origName' => $origName,
-                    'dbId'     => $f['id']
-                ];
-            }
-
-            // jalankan rotasi file
-            $rotator->rotateFiles($tempFiles);
-
-            // setelah rotate → baca ulang hasilnya, simpan ke DB
+            // Cleanup temporary files
             foreach ($tempFiles as $tmp) {
-                if (file_exists($tmp['encPath'])) {
-                    $newCipher = file_get_contents($tmp['encPath']);
-                    $this->fileModel->updateFileData($tmp['dbId'], $newCipher);
-                }
                 @unlink($tmp['encPath']);
             }
-
-            // TAMBAHAN: LOG KEY ROTATION SUCCESS
-            $this->safeLog(
-                'rotate_key_with_passwords', 
-                'success', 
-                'system', 
-                'master_key', 
-                'Master Key Rotation with Passwords', 
-                [
-                    'files_processed' => count($tempFiles),
-                    'restricted_files' => count($restrictedPasswordMap)
-                ]
-            );
-
-            return true;
             
-        } catch (Exception $e) {
-            error_log("Key rotation with passwords failed: " . $e->getMessage());
-            
-            // TAMBAHAN: LOG KEY ROTATION FAILED
-            $this->safeLog(
-                'rotate_key_with_passwords', 
-                'failed', 
-                'system', 
-                'master_key', 
-                'Master Key Rotation with Passwords', 
-                [
-                    'error' => $e->getMessage(),
-                    'files_to_process' => count($tempFiles ?? []),
-                    'restricted_files' => count($restrictedPasswordMap)
-                ]
-            );
-            
-            if (isset($tempFiles)) {
-                foreach ($tempFiles as $tmp) {
-                    @unlink($tmp['encPath']);
-                }
-            }
+            // Log failure
+            $this->safeLog($logAction, 'failed', 'system', 'master_key', 'Master Key Rotation', [
+                'error' => $e->getMessage(),
+                'files_to_process' => count($tempFiles),
+                'restricted_files' => count($restrictedPasswordMap)
+            ]);
             
             throw new RuntimeException("Gagal melakukan rotasi key: " . $e->getMessage());
         }
     }
 
-    // Cek apakah user sudah login (gunakan session)
-    public function isAuthenticated() {
+    // ================= DATA RETRIEVAL =================
+    
+    /**
+     * Get semua labels untuk dropdown filter
+     */
+    public function getAllLabels() {
+        try {
+            $stmt = $this->pdo->prepare('SELECT id, name FROM labels ORDER BY name ASC');
+            $stmt->execute();
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Get labels error: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get statistik untuk dashboard
+     */
+    public function getDashboardStats() {
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
-        return isset($_SESSION['user_id']);
+        $userLevel = $_SESSION['user_level'] ?? 1;
+        
+        try {
+            // Total files
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) as total FROM files WHERE access_level_id <= ?');
+            $stmt->execute([$userLevel]);
+            $totalFiles = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+            
+            // Total downloads
+            $stmt = $this->pdo->prepare('SELECT SUM(download_count) as total_downloads FROM files WHERE access_level_id <= ?');
+            $stmt->execute([$userLevel]);
+            $totalDownloads = $stmt->fetch(PDO::FETCH_ASSOC)['total_downloads'] ?? 0;
+            
+            // Files by label
+            $stmt = $this->pdo->prepare('
+                SELECT l.name, COUNT(f.id) as count 
+                FROM labels l 
+                LEFT JOIN files f ON l.id = f.label_id AND f.access_level_id <= ?
+                GROUP BY l.id, l.name 
+                ORDER BY count DESC
+            ');
+            $stmt->execute([$userLevel]);
+            $filesByLabel = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Recent uploads (7 days)
+            $stmt = $this->pdo->prepare('
+                SELECT COUNT(*) as recent_uploads 
+                FROM files 
+                WHERE access_level_id <= ? AND uploaded_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            ');
+            $stmt->execute([$userLevel]);
+            $recentUploads = $stmt->fetch(PDO::FETCH_ASSOC)['recent_uploads'];
+            
+            return [
+                'total_files' => $totalFiles,
+                'total_downloads' => $totalDownloads,
+                'files_by_label' => $filesByLabel,
+                'recent_uploads' => $recentUploads
+            ];
+            
+        } catch (Exception $e) {
+            error_log("Dashboard stats error: " . $e->getMessage());
+            return [
+                'total_files' => 0,
+                'total_downloads' => 0,
+                'files_by_label' => [],
+                'recent_uploads' => 0
+            ];
+        }
+    }
+
+    // ================= SYSTEM LOCK FUNCTIONS =================
+    
+    /**
+     * Get current filename display mode dari database (PUBLIC untuk testing)
+     */
+    public function getFilenameDisplayMode() {
+        try {
+            $stmt = $this->pdo->prepare('SELECT setting_value FROM system_settings WHERE setting_key = ?');
+            $stmt->execute(['filename_display_mode']);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            return $result ? $result['setting_value'] : 'normal';
+        } catch (Exception $e) {
+            error_log("Get display mode error: " . $e->getMessage());
+            return 'normal';
+        }
+    }
+
+    /**
+     * Set filename display mode (hanya superadmin)
+     */
+    public function setFilenameDisplayMode($mode, $adminUserId) {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        
+        $userLevel = $_SESSION['user_level'] ?? 1;
+        
+        // Hanya superadmin yang bisa mengubah mode
+        if ($userLevel != 4) {
+            throw new RuntimeException("Access denied: Only superadmin can change display mode");
+        }
+        
+        if (!in_array($mode, ['normal', 'encrypted'])) {
+            throw new RuntimeException("Invalid display mode");
+        }
+        
+        try {
+            $stmt = $this->pdo->prepare('
+                INSERT INTO system_settings (setting_key, setting_value, updated_by) 
+                VALUES (?, ?, ?)
+                ON DUPLICATE KEY UPDATE 
+                setting_value = VALUES(setting_value), 
+                updated_by = VALUES(updated_by),
+                updated_at = CURRENT_TIMESTAMP
+            ');
+            $stmt->execute(['filename_display_mode', $mode, $adminUserId]);
+            
+            // Log perubahan mode
+            $this->safeLog('system_lock', 'success', 'system', 'filename_display', 'Filename Display Mode Change', [
+                'mode' => $mode,
+                'changed_by' => $adminUserId,
+                'affects_all_users' => true
+            ]);
+            
+            return true;
+            
+        } catch (Exception $e) {
+            error_log("Set display mode error: " . $e->getMessage());
+            throw new RuntimeException("Failed to update display mode");
+        }
     }
 }
