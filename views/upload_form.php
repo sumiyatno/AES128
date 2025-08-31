@@ -20,13 +20,11 @@ if (!$userController->canAccessFeature($role, 'upload')) {
 ?>
 
 <?php require_once __DIR__ . '/../models/Label.php'; ?>
-<?php include __DIR__ . '/sidebar.php'; ?> <!-- sudah diperbaiki -->
+<?php include __DIR__ . '/sidebar.php'; ?>
 
 <?php
 $labelModel = new Label($pdo);
 $labels = $labelModel->all();
-
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -34,7 +32,7 @@ $labels = $labelModel->all();
   <meta charset="UTF-8">
   <title>Upload File</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="sidebar.css" rel="stylesheet"> <!-- sudah diperbaiki -->
+  <link href="sidebar.css" rel="stylesheet">
 </head>
 <body class="bg-light">
 <div class="container mt-5">
@@ -48,21 +46,24 @@ $labels = $labelModel->all();
 
     <div class="mb-3">
       <label for="label_id" class="form-label">Pilih Label</label>
-      <select name="label_id" id="label_id" class="form-select" required>
+      <select name="label_id" id="label_id" class="form-select" required onchange="togglePasswordField()">
         <option value="">-- Pilih Label --</option>
         <?php foreach ($labels as $label): ?>
-          <option value="<?= $label['id'] ?>">
+          <option value="<?= $label['id'] ?>" data-access-level="<?= $label['access_level'] ?>">
             <?= htmlspecialchars($label['name']) ?> (<?= $label['access_level'] ?>)
           </option>
         <?php endforeach; ?>
       </select>
     </div>
 
-      
-    <div class="mb-3">
-      <label for="restricted_password" class="form-label">Password (untuk Restricted)</label>
+    <!-- FIXED: Password field hanya muncul jika label = restricted -->
+    <div class="mb-3" id="password-field" style="display: none;">
+      <label for="restricted_password" class="form-label">🔒 Password untuk File Restricted</label>
       <input type="password" name="restricted_password" id="restricted_password" class="form-control">
-      <div class="form-text">Kosongkan jika tidak menggunakan password khusus.</div>
+      <div class="form-text">
+        <strong>Label "Restricted" dipilih - Password wajib diisi!</strong><br>
+        Password ini akan dienkripsi dengan Argon2 dan diperlukan untuk download.
+      </div>
     </div>
 
     <div class="mb-3">
@@ -81,5 +82,40 @@ $labels = $labelModel->all();
     <a href="dashboard.php" class="btn btn-secondary">Kembali</a>
   </form>
 </div>
+
+<script>
+function togglePasswordField() {
+    const labelSelect = document.getElementById('label_id');
+    const passwordField = document.getElementById('password-field');
+    const passwordInput = document.getElementById('restricted_password');
+    
+    const selectedOption = labelSelect.options[labelSelect.selectedIndex];
+    const accessLevel = selectedOption.getAttribute('data-access-level');
+    
+    if (accessLevel === 'restricted') {
+        passwordField.style.display = 'block';
+        passwordInput.required = true;
+    } else {
+        passwordField.style.display = 'none';
+        passwordInput.required = false;
+        passwordInput.value = ''; // Clear password jika tidak restricted
+    }
+}
+
+// Form validation
+document.querySelector('form').addEventListener('submit', function(e) {
+    const labelSelect = document.getElementById('label_id');
+    const passwordInput = document.getElementById('restricted_password');
+    
+    const selectedOption = labelSelect.options[labelSelect.selectedIndex];
+    const accessLevel = selectedOption.getAttribute('data-access-level');
+    
+    if (accessLevel === 'restricted' && !passwordInput.value.trim()) {
+        e.preventDefault();
+        alert('Password wajib diisi untuk file dengan label Restricted!');
+        passwordInput.focus();
+    }
+});
+</script>
 </body>
 </html>

@@ -31,11 +31,7 @@ function showMenu($feature, $label, $url, $icon, $role, $userController) {
     <?php showMenu('dashboard', 'Dashboard', 'dashboard.php', '📊', $role, $userController); ?>
     <?php showMenu('manage_account', 'Kelola Akun', 'manage_account.php', '👤', $role, $userController); ?>
     <?php showMenu('register', 'Register User', 'register.php', '📝', $role, $userController); ?>
-
-    <!-- Di sidebar.php, tambahkan menu Logs untuk Super Admin -->
-    <?php if ($userController->canAccessFeature($role, 'admin')): ?>
-        <li><a href="../routes.php?action=logs">📊 Activity Logs</a></li>
-    <?php endif; ?>
+    <?php showMenu('logs', 'Activity Logs', 'logs.php', '📋', $role, $userController); ?>
 
     <div class="mt-4">
         <form action="../routes.php?action=logout" method="POST">

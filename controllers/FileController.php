@@ -68,26 +68,45 @@ class FileController {
     }
 
     // ================= FILE OPERATIONS =================
-    
+
     /**
-     * Upload file dengan enkripsi dan logging
+     * Upload file dengan enkripsi dan logging - FIXED BERDASARKAN LABEL
      */
     public function upload($file, $label_id, $access_level_id, $restricted_password = null) {
         $fileId = uniqid("file_");
-        
+
         try {
             $label = $this->labelModel->find($label_id);
             if (!$label) {
                 throw new RuntimeException("Label tidak ditemukan");
             }
 
-            $userSecret = $restricted_password ?: null;
-
-            // Password hash untuk restricted files
-            $restrictedPasswordHash = null;
-            if ($label['access_level'] === 'restricted' && $restricted_password) {
-                $restrictedPasswordHash = password_hash($restricted_password, PASSWORD_ARGON2ID);
+            // FIXED: Deteksi restricted berdasarkan label access_level
+            $isRestrictedLabel = ($label['access_level'] === 'restricted');
+            
+            // FIXED: Validasi password berdasarkan label type
+            if ($isRestrictedLabel && empty($restricted_password)) {
+                throw new RuntimeException("Password wajib untuk file dengan label Restricted");
             }
+            
+            if (!$isRestrictedLabel && !empty($restricted_password)) {
+                throw new RuntimeException("Password hanya untuk file dengan label Restricted");
+            }
+
+            // Hash password jika label restricted
+            $restrictedPasswordHash = null;
+            if ($isRestrictedLabel && !empty($restricted_password)) {
+                $restrictedPasswordHash = password_hash($restricted_password, PASSWORD_ARGON2ID, [
+                    'memory_cost' => 65536, // 64 MB
+                    'time_cost' => 4,       // 4 iterations
+                    'threads' => 3          // 3 threads
+                ]);
+                
+                error_log("RESTRICTED LABEL FILE: Password hashed with Argon2ID for file: " . $file['name'] . " (Label: " . $label['name'] . ")");
+            }
+
+            // User secret untuk enkripsi (password restricted atau null)
+            $userSecret = $isRestrictedLabel ? $restricted_password : null;
 
             // Enkripsi file
             $tmpEncPath = sys_get_temp_dir() . "/enc_" . $fileId;
@@ -97,8 +116,8 @@ class FileController {
             // Simpan ke database
             $stmt = $this->pdo->prepare('
                 INSERT INTO files 
-                (filename, original_filename, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (filename, original_filename, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash, uploaded_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
             ');
             
             $result = $stmt->execute([
@@ -109,23 +128,29 @@ class FileController {
                 $label_id,
                 $access_level_id,
                 "",
-                $restrictedPasswordHash
+                $restrictedPasswordHash  // NULL untuk non-restricted, hash untuk restricted
             ]);
 
             if ($result) {
+                $insertedId = $this->pdo->lastInsertId();
+                error_log("File uploaded successfully - ID: $insertedId, Label: {$label['name']} ({$label['access_level']}), Restricted: " . ($isRestrictedLabel ? 'YES' : 'NO'));
+                
                 // Log upload success
                 $this->safeLog('upload', 'success', 'file', $fileId, $file['name'], [
                     'file_size' => $file['size'],
                     'mime_type' => $file['type'],
                     'label_id' => $label_id,
+                    'label_name' => $label['name'],
+                    'label_access_level' => $label['access_level'],
                     'access_level_id' => $access_level_id,
-                    'access_level' => $label['access_level'],
-                    'restricted' => !empty($restricted_password) ? 'yes' : 'no'
+                    'is_restricted_by_label' => $isRestrictedLabel ? 'yes' : 'no'
                 ]);
+                
+                return $insertedId;
             }
 
             unlink($tmpEncPath);
-            return true;
+            return false;
             
         } catch (Exception $e) {
             // Log upload failed
@@ -206,7 +231,7 @@ class FileController {
     // ================= DASHBOARD & DISPLAY =================
     
     /**
-     * Dashboard dengan toggle encrypted untuk superadmin
+     * Dashboard dengan deteksi restricted yang benar
      */
     public function dashboard($showEncrypted = false) {
         if (session_status() === PHP_SESSION_NONE) {
@@ -214,15 +239,40 @@ class FileController {
         }
         
         $level = $_SESSION['user_level'] ?? 1;
-        $files = $this->fileModel->allWithAccessLevel($level);
         
-        // Cek mode display global dari database
-        $globalMode = $this->getFilenameDisplayMode();
+        // FIXED: Query dengan deteksi restricted_password_hash
+        $sql = '
+            SELECT f.*, l.name AS label_name, l.access_level AS label_access_level_enum,
+                   al.level AS file_access_level_level, al.name AS file_access_level_name,
+                   CASE 
+                       WHEN f.restricted_password_hash IS NOT NULL AND f.restricted_password_hash != "" 
+                       THEN 1 
+                       ELSE 0 
+                   END as is_restricted_file
+            FROM files f
+            JOIN labels l ON f.label_id = l.id
+            LEFT JOIN access_levels al ON f.access_level_id = al.id
+            WHERE f.access_level_id <= ?
+            ORDER BY f.uploaded_at DESC
+        ';
         
-        // Superadmin bisa override dengan parameter
-        $showEncrypted = ($level == 4 && $showEncrypted) ? true : ($globalMode === 'encrypted');
-        
-        return $this->processFilenamesForDisplay($files, $level, $showEncrypted, $globalMode);
+        try {
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$level]);
+            $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Cek mode display global dari database
+            $globalMode = $this->getFilenameDisplayMode();
+            
+            // Superadmin bisa override dengan parameter
+            $showEncrypted = ($level == 4 && $showEncrypted) ? true : ($globalMode === 'encrypted');
+            
+            return $this->processFilenamesForDisplay($files, $level, $showEncrypted, $globalMode);
+            
+        } catch (Exception $e) {
+            error_log("Dashboard error: " . $e->getMessage());
+            return [];
+        }
     }
 
     /**
@@ -279,22 +329,20 @@ class FileController {
     }
 
     /**
-     * Process filenames untuk display dengan sistem lock global
+     * Process filenames dengan deteksi restricted yang benar
      */
     private function processFilenamesForDisplay($files, $userLevel, $showEncrypted = false, $globalMode = 'normal') {
         foreach ($files as &$f) {
+            // FIXED: Deteksi restricted berdasarkan database field
+            $f['is_restricted_file'] = !empty($f['restricted_password_hash']);
+            
             if ($showEncrypted) {
                 // Mode encrypted: tampilkan nama ter-encrypt dengan AES-256
                 $f["decrypted_name"] = $this->encryptFilenameAES256($f["original_filename"]);
                 $f["display_mode"] = "encrypted";
             } else {
-                // Mode normal: cek restricted/private atau decode nama asli
-                if (isset($f["label_access_level_enum"]) && 
-                    ($f["label_access_level_enum"] === 'restricted' || $f["label_access_level_enum"] === 'private')) {
-                    $f["decrypted_name"] = "[Restricted/Private]";
-                } else {
-                    $f["decrypted_name"] = base64_decode($f["original_filename"]);
-                }
+                // Mode normal: decode nama asli
+                $f["decrypted_name"] = base64_decode($f["original_filename"]);
                 $f["display_mode"] = "normal";
             }
             

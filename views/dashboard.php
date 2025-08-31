@@ -552,19 +552,28 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
                         <th>Label</th>
                         <th>Upload Date</th>
                         <th>Downloads</th>
+                        <th>Access</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($files as $file): ?>
+                        <?php 
+                        // DEBUG: Check restricted status
+                        $isRestricted = !empty($file['restricted_password_hash']) || !empty($file['is_restricted_file']);
+                        error_log("File ID {$file['id']}: restricted_password_hash = " . ($file['restricted_password_hash'] ?? 'NULL') . ", is_restricted = " . ($isRestricted ? 'YES' : 'NO'));
+                        ?>
                         <tr>
                             <td>
                                 <div class="file-name">
                                     <?= htmlspecialchars($file['decrypted_name']) ?>
+                                    <?php if ($isRestricted): ?>
+                                        <span class="restricted-badge">🔒 RESTRICTED</span>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                             <td>
-                                <span class="label-badge">
+                                <span class="label-badge" style="background-color: <?= htmlspecialchars($file['label_color'] ?? '#6c757d') ?>">
                                     <?= htmlspecialchars($file['label_name'] ?? 'No Label') ?>
                                 </span>
                             </td>
@@ -575,10 +584,51 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
                                 <?= number_format($file['download_count'] ?? 0) ?>
                             </td>
                             <td>
-                                <a href="../routes.php?action=download&id=<?= urlencode($file['id']) ?>" 
-                                   class="download-btn">
-                                    📥 Download
-                                </a>
+                                <!-- ACCESS COLUMN - FIXED LOGIC -->
+                                <?php if ($isRestricted): ?>
+                                    <div class="password-group">
+                                        <input 
+                                            type="password" 
+                                            class="password-input" 
+                                            id="password_<?= $file['id'] ?>"
+                                            placeholder="Enter password..."
+                                            style="padding: 4px 8px; border: 2px solid #dc3545; border-radius: 4px; width: 100px; font-size: 11px;"
+                                        >
+                                        <button 
+                                            type="button" 
+                                            class="toggle-password-btn"
+                                            onclick="togglePassword('password_<?= $file['id'] ?>')"
+                                            style="margin-left: 3px; padding: 4px 6px; background: #6c757d; color: white; border: none; border-radius: 3px; font-size: 10px; cursor: pointer;"
+                                            title="Show/Hide Password"
+                                        >
+                                            👁️
+                                        </button>
+                                    </div>
+                                    <div style="font-size: 9px; color: #dc3545; margin-top: 1px; font-weight: bold;">
+                                        🔒 Password Required
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color: #28a745; font-size: 11px; font-weight: bold;">📂 Public</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <!-- ACTION COLUMN - FIXED LOGIC -->
+                                <?php if ($isRestricted): ?>
+                                    <button 
+                                        onclick="downloadWithPassword(<?= $file['id'] ?>)" 
+                                        class="download-btn restricted-download-btn"
+                                        id="download_btn_<?= $file['id'] ?>"
+                                        style="background: #dc3545; border: 2px solid #dc3545; color: white; padding: 6px 12px; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: bold;"
+                                    >
+                                        🔒 Download
+                                    </button>
+                                <?php else: ?>
+                                    <a href="../routes.php?action=download&id=<?= urlencode($file['id']) ?>" 
+                                       class="download-btn"
+                                       style="background: #007bff; border: 2px solid #007bff; color: white; padding: 6px 12px; border-radius: 4px; font-size: 11px; text-decoration: none; display: inline-block; font-weight: bold;">
+                                        📥 Download
+                                    </a>
+                                <?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -601,13 +651,194 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
                 <?php if (!empty($searchTerm) || !empty($labelFilter)): ?>
                     <p>Try adjusting your search criteria or <a href="dashboard.php">view all files</a></p>
                 <?php else: ?>
-                    <p>No files have been uploaded yet. <a href="upload.php">Upload your first file</a></p>
+                    <p>No files have been uploaded yet. <a href="upload_form.php">Upload your first file</a></p>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
     </div>
 
-    <!-- TAMBAHAN: JavaScript untuk global lock toggle -->
+    <!-- TAMBAHAN: CSS untuk restricted file styling -->
+    <style>
+        .restricted-badge {
+            background: #dc3545;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            margin-left: 8px;
+            font-weight: bold;
+        }
+        
+        .password-group {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+        
+        .password-input {
+            border: 2px solid #dc3545 !important;
+            transition: border-color 0.3s ease;
+        }
+        
+        .password-input:focus {
+            outline: none;
+            border-color: #c82333 !important;
+            box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+        }
+        
+        .password-input.valid {
+            border-color: #28a745 !important;
+        }
+        
+        .restricted-download-btn {
+            transition: all 0.3s ease;
+        }
+        
+        .restricted-download-btn:hover {
+            background: #c82333 !important;
+            border-color: #c82333;
+            transform: translateY(-1px);
+        }
+        
+        .restricted-download-btn:disabled {
+            background: #6c757d !important;
+            border-color: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        .toggle-password-btn:hover {
+            background: #5a6268 !important;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .files-table {
+                font-size: 12px;
+            }
+            
+            .password-input {
+                width: 80px;
+                font-size: 10px;
+                padding: 3px 5px;
+            }
+            
+            .download-btn {
+                padding: 5px 8px;
+                font-size: 10px;
+            }
+        }
+    </style>
+
+    <!-- TAMBAHAN: JavaScript untuk password handling dan download -->
+    <script>
+        // Function untuk toggle password visibility
+        function togglePassword(inputId) {
+            const input = document.getElementById(inputId);
+            const button = input.nextElementSibling;
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                button.innerHTML = '🙈';
+                button.title = 'Hide Password';
+            } else {
+                input.type = 'password';
+                button.innerHTML = '👁️';
+                button.title = 'Show Password';
+            }
+        }
+        
+        // Function untuk download dengan password
+        function downloadWithPassword(fileId) {
+            const passwordInput = document.getElementById(`password_${fileId}`);
+            const downloadBtn = document.getElementById(`download_btn_${fileId}`);
+            const password = passwordInput.value.trim();
+            
+            // Validasi password input
+            if (!password) {
+                alert('❌ Please enter the password for this restricted file!');
+                passwordInput.focus();
+                passwordInput.style.borderColor = '#dc3545';
+                passwordInput.style.boxShadow = '0 0 0 0.2rem rgba(220, 53, 69, 0.25)';
+                return;
+            }
+            
+            // Reset styling
+            passwordInput.style.borderColor = '#28a745';
+            passwordInput.style.boxShadow = '0 0 0 0.2rem rgba(40, 167, 69, 0.25)';
+            
+            // Disable button dan show loading
+            downloadBtn.disabled = true;
+            downloadBtn.innerHTML = '⏳ Processing...';
+            
+            // Create form dan submit untuk download
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '../routes.php?action=download&id=' + encodeURIComponent(fileId);
+            form.style.display = 'none';
+            
+            const passwordField = document.createElement('input');
+            passwordField.type = 'hidden';
+            passwordField.name = 'password';
+            passwordField.value = password;
+            
+            form.appendChild(passwordField);
+            document.body.appendChild(form);
+            
+            // Submit form
+            form.submit();
+            
+            // Reset UI after delay
+            setTimeout(() => {
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = '🔒 Download';
+                passwordInput.value = ''; // Clear password for security
+                passwordInput.style.borderColor = '#dc3545';
+                passwordInput.style.boxShadow = 'none';
+                
+                // Remove form
+                if (document.body.contains(form)) {
+                    document.body.removeChild(form);
+                }
+            }, 3000);
+        }
+        
+        // Real-time password validation
+        document.addEventListener('DOMContentLoaded', function() {
+            const passwordInputs = document.querySelectorAll('.password-input');
+            
+            passwordInputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    const fileId = this.id.replace('password_', '');
+                    const downloadBtn = document.getElementById(`download_btn_${fileId}`);
+                    
+                    if (this.value.trim().length > 0) {
+                        this.classList.add('valid');
+                        if (downloadBtn) {
+                            downloadBtn.style.background = '#dc3545';
+                            downloadBtn.innerHTML = '🔒 Download';
+                        }
+                    } else {
+                        this.classList.remove('valid');
+                        if (downloadBtn) {
+                            downloadBtn.style.background = '#6c757d';
+                            downloadBtn.innerHTML = '🔒 Password Required';
+                        }
+                    }
+                });
+                
+                // Enter key untuk download
+                input.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        const fileId = this.id.replace('password_', '');
+                        downloadWithPassword(fileId);
+                    }
+                });
+            });
+        });
+    </script>
+
+    <!-- EXISTING GLOBAL LOCK TOGGLE SCRIPT - TIDAK DIUBAH -->
     <?php if ($role == 4): ?>
     <script>
         document.getElementById('globalLockToggle').addEventListener('change', function() {
