@@ -196,7 +196,7 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
         
         .label-badge {
             background: #e9ecef;
-            color: #495057;
+            color: #ffffffff;
             padding: 4px 8px;
             border-radius: 12px;
             font-size: 12px;

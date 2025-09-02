@@ -67,15 +67,15 @@ $labels = $labelModel->all();
     </div>
 
     <div class="mb-3">
-      <label for="access_level_id" class="form-label">Akses File (Role)</label>
+      <label for="access_level_id" class="form-label">Akses Level</label>
       <select name="access_level_id" id="access_level_id" class="form-select" required>
         <option value="">-- Pilih Level Akses --</option>
-        <option value="1">Staff/General</option>
-        <option value="2">Kepala Sub Bidang</option>
-        <option value="3">Kepala Bidang</option>
-        <option value="4">Super Admin</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
       </select>
-      <div class="form-text">Pilih level akses file sesuai role yang boleh mengakses.</div>
+      <div class="form-text">Pilih level akses file sesuai yang boleh mengakses.</div>
     </div>
 
     <button type="submit" class="btn btn-primary">Upload</button>

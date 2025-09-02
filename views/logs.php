@@ -281,9 +281,26 @@ $statistics = $logController->getStatistics();
             </form>
         </div>
 
-        <!-- Export Button -->
+        
+        <!-- Export Button - SESUAIKAN dengan routes.php -->
         <div style="margin-bottom: 20px;">
-            <a href="../routes.php?action=export_logs<?= http_build_query($filter) ? '&' . http_build_query($filter) : '' ?>" 
+            <?php
+            // Build query string untuk filter yang aktif
+            $currentFilters = array_filter([
+                'action_filter' => $filter['action'] ?? '',
+                'status_filter' => $filter['status'] ?? '',
+                'user_filter' => $filter['user_id'] ?? '',
+                'date_from' => $filter['date_from'] ?? '',
+                'date_to' => $filter['date_to'] ?? ''
+            ]);
+            
+            $queryString = '';
+            if (!empty($currentFilters)) {
+                $queryString = '&' . http_build_query($currentFilters);
+            }
+            ?>
+            
+            <a href="../routes.php?action=export_logs<?= $queryString ?>" 
                class="btn btn-success">📥 Export to CSV</a>
         </div>
 
