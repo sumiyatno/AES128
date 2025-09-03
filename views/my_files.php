@@ -209,10 +209,9 @@ $userInfo = $authController->getCurrentUser();
         // Fallback header jika file tidak ada
         echo '<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
                 <div class="container-fluid">
-                    <a class="navbar-brand" href="../dashboard.php">AES System</a>
+                    <a class="navbar-brand" href=" dashboard.php">AES System</a>
                     <div class="navbar-nav ms-auto">
-                        <a class="nav-link" href="../dashboard.php">Dashboard</a>
-                        <a class="nav-link" href="../logout.php">Logout</a>
+                        <a class="nav-link" href=" dashboard.php">Dashboard</a>
                     </div>
                 </div>
               </nav>';
@@ -253,7 +252,7 @@ $userInfo = $authController->getCurrentUser();
                     </div>
                     <div class="card-body">
                         <div class="d-grid gap-2">
-                            <a href="upload.php" class="btn btn-primary btn-sm">
+                            <a href="upload_form.php" class="btn btn-primary btn-sm">
                                 <i class="fas fa-upload me-1"></i>Upload File
                             </a>
                             <button class="btn btn-outline-secondary btn-sm" onclick="toggleSelectMode()">
