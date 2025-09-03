@@ -113,7 +113,16 @@ private function validateExportFilter($filter) {
         $allowedActions = [
             'login', 'logout', 'upload', 'download', 'rotate_key', 
             'create_user', 'delete_user', 'update_user', 'file_delete', 
-            'file_update', 'export_logs', 'create_label'
+            'file_update', 'export_logs', 'create_label', 'soft_delete',           // Soft delete file
+            'hard_delete',           // Hard delete file  
+            'permanent_delete',      // Permanent delete from database
+            'file_restore',          // Restore deleted file
+            'file_update',           // Update file metadata
+            'export_my_files',       // Export user's files to CSV
+            'view_file_details',     // View file details
+            'bulk_delete',           // Bulk delete files
+            'bulk_permanent_delete', // Bulk permanent delete
+                
         ];
         if (in_array($filter['action'], $allowedActions)) {
             $validatedFilter['action'] = $filter['action'];
@@ -163,4 +172,102 @@ private function validateExportFilter($filter) {
     public function writeLog($action, $status = 'success', $targetType = null, $targetId = null, $targetName = null, $details = null) {
         return $this->logModel->log($action, $status, $targetType, $targetId, $targetName, $details);
     }
+    /**
+     * NEW METHOD: Get File Manager activity statistics
+     */
+    public function getFileManagerStats($days = 30) {
+        try {
+            $sql = "
+                SELECT 
+                    action,
+                    COUNT(*) as count,
+                    DATE(created_at) as date
+                FROM activity_logs 
+                WHERE action IN (
+                    'soft_delete', 'hard_delete', 'permanent_delete', 
+                    'file_restore', 'file_update', 'export_my_files',
+                    'view_file_details', 'bulk_delete', 'bulk_permanent_delete'
+                )
+                AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                GROUP BY action, DATE(created_at)
+                ORDER BY created_at DESC
+            ";
+            
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$days]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            error_log("Get file manager stats error: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * NEW METHOD: Get most active file managers
+     */
+    public function getMostActiveFileManagers($limit = 10, $days = 30) {
+        try {
+            $sql = "
+                SELECT 
+                    al.user_id,
+                    u.username,
+                    COUNT(*) as activity_count,
+                    COUNT(CASE WHEN al.action = 'permanent_delete' THEN 1 END) as permanent_deletes,
+                    COUNT(CASE WHEN al.action = 'file_restore' THEN 1 END) as restores,
+                    COUNT(CASE WHEN al.action = 'file_update' THEN 1 END) as updates
+                FROM activity_logs al
+                LEFT JOIN users u ON al.user_id = u.id
+                WHERE al.action IN (
+                    'soft_delete', 'hard_delete', 'permanent_delete', 
+                    'file_restore', 'file_update', 'export_my_files'
+                )
+                AND al.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                GROUP BY al.user_id, u.username
+                ORDER BY activity_count DESC
+                LIMIT ?
+            ";
+            
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$days, $limit]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            error_log("Get most active file managers error: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * NEW METHOD: Get file deletion trends
+     */
+    public function getFileDeletionTrends($days = 30) {
+        try {
+            $sql = "
+                SELECT 
+                    DATE(created_at) as date,
+                    COUNT(CASE WHEN action = 'soft_delete' THEN 1 END) as soft_deletes,
+                    COUNT(CASE WHEN action = 'hard_delete' THEN 1 END) as hard_deletes,
+                    COUNT(CASE WHEN action = 'permanent_delete' THEN 1 END) as permanent_deletes,
+                    COUNT(CASE WHEN action = 'file_restore' THEN 1 END) as restores
+                FROM activity_logs
+                WHERE action IN ('soft_delete', 'hard_delete', 'permanent_delete', 'file_restore')
+                AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+                GROUP BY DATE(created_at)
+                ORDER BY date DESC
+            ";
+            
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$days]);
+            
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+        } catch (Exception $e) {
+            error_log("Get file deletion trends error: " . $e->getMessage());
+            return [];
+        }
+    }
 }
+?>

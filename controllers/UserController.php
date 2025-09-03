@@ -73,10 +73,10 @@ class UserController {
     public function canAccessFeature($role, $feature) {
         $role = (int)$role;
         $features = [
-            1 => ['upload', 'dashboard','download'],
-            2 => ['upload', 'dashboard', 'create_label','download'],
-            3 => ['upload', 'dashboard', 'create_label','download'],
-            4 => ['upload', 'dashboard', 'create_label', 'manage_account', 'manage', 'admin', 'master_key', 'rotateKeyWithPasswords', 'register','download', 'logs']
+            1 => ['upload', 'dashboard', 'download', 'file_manager'],
+            2 => ['upload', 'dashboard', 'create_label','download', 'file_manager'],
+            3 => ['upload', 'dashboard', 'create_label','download', 'file_manager'],
+            4 => ['upload', 'dashboard', 'create_label', 'manage_account', 'manage', 'admin', 'master_key', 'rotateKeyWithPasswords', 'register','download', 'logs', 'file_manager']
         ];
         return in_array($feature, $features[$role] ?? []);
     }

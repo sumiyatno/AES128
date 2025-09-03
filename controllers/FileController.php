@@ -70,9 +70,16 @@ class FileController {
     // ================= FILE OPERATIONS =================
 
     /**
-     * Upload file dengan enkripsi dan logging - FIXED BERDASARKAN LABEL
+     * Upload file dengan enkripsi dan logging - UPDATED dengan uploaded_by tracking
      */
     public function upload($file, $label_id, $access_level_id, $restricted_password = null) {
+        // Pastikan user sudah login
+        if (!$this->isAuthenticated()) {
+            throw new RuntimeException("User harus login untuk upload file");
+        }
+
+        // Ambil user ID dari session
+        $uploadedBy = $_SESSION['user_id'];
         $fileId = uniqid("file_");
 
         try {
@@ -113,29 +120,26 @@ class FileController {
             encrypt_file($file['tmp_name'], $tmpEncPath, $fileId, $file['name'], $userSecret);
             $encData = file_get_contents($tmpEncPath);
 
-            // Simpan ke database
-            $stmt = $this->pdo->prepare('
-                INSERT INTO files 
-                (filename, original_filename, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash, uploaded_at) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ');
-            
-            $result = $stmt->execute([
-                $fileId,
-                base64_encode($file['name']),
-                base64_encode($file['type']),
-                $encData,
-                $label_id,
-                $access_level_id,
-                "",
-                $restrictedPasswordHash  // NULL untuk non-restricted, hash untuk restricted
-            ]);
+            // Prepare data untuk save dengan uploaded_by
+            $fileData = [
+                'filename' => $fileId,
+                'original_filename' => base64_encode($file['name']),
+                'mime_type' => base64_encode($file['type']),
+                'file_data' => $encData,
+                'label_id' => $label_id,
+                'access_level_id' => $access_level_id,
+                'encryption_iv' => "",
+                'restricted_password_hash' => $restrictedPasswordHash,
+                'uploaded_by' => $uploadedBy  // TAMBAHAN INI
+            ];
+
+            $result = $this->fileModel->save($fileData);
 
             if ($result) {
                 $insertedId = $this->pdo->lastInsertId();
-                error_log("File uploaded successfully - ID: $insertedId, Label: {$label['name']} ({$label['access_level']}), Restricted: " . ($isRestrictedLabel ? 'YES' : 'NO'));
+                error_log("File uploaded successfully - ID: $insertedId, Label: {$label['name']} ({$label['access_level']}), Restricted: " . ($isRestrictedLabel ? 'YES' : 'NO') . ", Uploaded by: $uploadedBy");
                 
-                // Log upload success
+                // Log upload success dengan info ownership
                 $this->safeLog('upload', 'success', 'file', $fileId, $file['name'], [
                     'file_size' => $file['size'],
                     'mime_type' => $file['type'],
@@ -143,9 +147,12 @@ class FileController {
                     'label_name' => $label['name'],
                     'label_access_level' => $label['access_level'],
                     'access_level_id' => $access_level_id,
-                    'is_restricted_by_label' => $isRestrictedLabel ? 'yes' : 'no'
+                    'is_restricted_by_label' => $isRestrictedLabel ? 'yes' : 'no',
+                    'uploaded_by' => $uploadedBy,
+                    'file_db_id' => $insertedId
                 ]);
                 
+                unlink($tmpEncPath);
                 return $insertedId;
             }
 
@@ -157,7 +164,8 @@ class FileController {
             $this->safeLog('upload', 'failed', 'file', $fileId, $file['name'] ?? 'unknown', [
                 'error' => $e->getMessage(),
                 'label_id' => $label_id ?? 'unknown',
-                'access_level_id' => $access_level_id ?? 'unknown'
+                'access_level_id' => $access_level_id ?? 'unknown',
+                'uploaded_by' => $uploadedBy ?? 'unknown'
             ]);
             throw $e;
         }

@@ -32,6 +32,7 @@ function showMenu($feature, $label, $url, $icon, $role, $userController) {
     <?php showMenu('manage_account', 'Kelola Akun', 'manage_account.php', '👤', $role, $userController); ?>
     <?php showMenu('register', 'Register User', 'register.php', '📝', $role, $userController); ?>
     <?php showMenu('logs', 'Activity Logs', 'logs.php', '📋', $role, $userController); ?>
+    <?php showMenu('file_manager', 'File Manager', 'my_files.php', '📁', $role, $userController); ?>
 
     <div class="mt-4">
         <form action="../routes.php?action=logout" method="POST">
