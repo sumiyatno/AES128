@@ -65,7 +65,24 @@ $labels = $labelModel->all();
         Password ini akan dienkripsi dengan Argon2 dan diperlukan untuk download.
       </div>
     </div>
-
+    <div class="mb-3">
+      <label for="file_description" class="form-label">📝 Deskripsi File</label>
+      <textarea 
+        class="form-control" 
+        id="file_description" 
+        name="file_description" 
+        rows="4" 
+        placeholder="Contoh:&#10;Nama File: Laporan Keuangan Q3&#10;Deskripsi: Laporan keuangan triwulan ketiga tahun 2025, berisi analisis pendapatan dan pengeluaran departemen..."
+        style="resize: vertical;"
+      ></textarea>
+      <div class="form-text">
+        <strong>Format yang disarankan:</strong><br>
+        • Baris 1: <strong>Nama File:</strong> [nama yang mudah diingat]<br>
+        • Baris 2+: <strong>Deskripsi:</strong> [detail file, tujuan, catatan, dll]<br>
+        • Field ini opsional, boleh dikosongkan
+      </div>
+    </div>
+    
     <div class="mb-3">
       <label for="access_level_id" class="form-label">Akses Level</label>
       <select name="access_level_id" id="access_level_id" class="form-select" required>
@@ -114,6 +131,50 @@ document.querySelector('form').addEventListener('submit', function(e) {
         e.preventDefault();
         alert('Password wajib diisi untuk file dengan label Restricted!');
         passwordInput.focus();
+    }
+});
+document.getElementById('file').addEventListener('change', function() {
+    const fileInput = this;
+    const descriptionTextarea = document.getElementById('file_description');
+    
+    if (fileInput.files.length > 0) {
+        const fileName = fileInput.files[0].name;
+        const fileNameWithoutExt = fileName.replace(/\.[^/.]+$/, ""); // Remove extension
+        
+        // Auto-suggest format jika textarea kosong
+        if (!descriptionTextarea.value.trim()) {
+            descriptionTextarea.value = `Nama File: ${fileNameWithoutExt}\nDeskripsi: `;
+            
+            // Set cursor ke akhir untuk user mulai mengetik deskripsi
+            setTimeout(() => {
+                descriptionTextarea.focus();
+                descriptionTextarea.setSelectionRange(descriptionTextarea.value.length, descriptionTextarea.value.length);
+            }, 100);
+        }
+    }
+});
+
+// Character counter untuk deskripsi
+document.getElementById('file_description').addEventListener('input', function() {
+    const maxLength = 1000;
+    const currentLength = this.value.length;
+    const remaining = maxLength - currentLength;
+    
+    // Buat atau update counter element
+    let counter = document.getElementById('description-counter');
+    if (!counter) {
+        counter = document.createElement('div');
+        counter.id = 'description-counter';
+        counter.style.cssText = 'font-size: 12px; margin-top: 5px; text-align: right;';
+        this.parentNode.appendChild(counter);
+    }
+    
+    counter.textContent = `${currentLength}/1000 karakter`;
+    counter.style.color = remaining < 50 ? '#dc3545' : '#6c757d';
+    
+    // Limit input
+    if (currentLength > maxLength) {
+        this.value = this.value.substring(0, maxLength);
     }
 });
 </script>

@@ -51,13 +51,25 @@ class FileManagerController {
 
     private function safeLog($action, $status = 'success', $targetType = null, $targetId = null, $targetName = null, $details = null) {
         try {
-            if ($this->logController) {
-                return $this->logController->writeLog($action, $status, $targetType, $targetId, $targetName, $details);
+            $userId = $this->getCurrentUserId();
+        
+        // FIX: Validate user exists before logging
+            if ($userId) {
+                $stmt = $this->pdo->prepare("SELECT id FROM users WHERE id = ?");
+                $stmt->execute([$userId]);
+                if (!$stmt->fetch()) {
+                    // User doesn't exist, skip logging or use null user_id
+                    error_log("Skipping log for non-existent user ID: $userId");
+                    return false;
+                }
             }
+
+            return $this->logController->writeLog($action, $status, $targetType, $targetId, $targetName, $details);
         } catch (Exception $e) {
-            error_log("Failed to write log: " . $e->getMessage());
+            // Log the error but don't break the main functionality
+            error_log("Failed to write activity log: " . $e->getMessage());
+            return false;
         }
-        return false;
     }
 
     /**

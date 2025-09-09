@@ -14,6 +14,37 @@ if (!$authController->isLoggedIn()) {
 
 $fileManagerController = new FileManagerController($pdo);
 
+
+// ADD: Handle CSV Export BEFORE any HTML output
+if (isset($_GET['export']) && $_GET['export'] === 'csv') {
+    try {
+        $includeDeleted = isset($_GET['include_deleted']);
+        
+        // Call the existing method in FileManagerController
+        $csvData = $fileManagerController->exportMyFilesToCSV($includeDeleted);
+        
+        // Set proper headers for CSV download
+        $filename = 'my_files_' . date('Y-m-d_H-i-s') . '.csv';
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($csvData));
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        
+        // Add UTF-8 BOM for proper Excel display
+        echo "\xEF\xBB\xBF" . $csvData;
+        exit;
+        
+    } catch (Exception $e) {
+        // If export fails, redirect back with error message
+        $_SESSION['flash_message'] = 'Export CSV gagal: ' . $e->getMessage();
+        $_SESSION['flash_type'] = 'error';
+        header('Location: my_files.php');
+        exit;
+    }
+}
+
+
 // Handle form submissions
 $message = '';
 $messageType = '';
@@ -505,6 +536,7 @@ $userInfo = $authController->getCurrentUser();
                 <form method="POST">
                     <input type="hidden" name="action" value="update_file">
                     <input type="hidden" name="file_id" id="editFileId">
+                    <input type="hidden" name="new_name" id="editFileNameHidden">
                     <div class="modal-header">
                         <h5 class="modal-title">Edit File</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -512,7 +544,9 @@ $userInfo = $authController->getCurrentUser();
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label">Nama File</label>
-                            <input type="text" class="form-control" name="new_name" id="editFileName" required>
+                            <div class="form-control bg-light" id="editFileNameDisplay" style="color: #6c757d;">
+                            </div>
+                            <small class="form-text text-muted">Nama file tidak dapat diubah</small>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Label</label>
@@ -610,7 +644,8 @@ $userInfo = $authController->getCurrentUser();
                 .then(data => {
                     if (data.success) {
                         document.getElementById('editFileId').value = data.file.id;
-                        document.getElementById('editFileName').value = data.file.original_filename;
+                        document.getElementById('editFileNameDisplay').textContent = data.file.original_filename;
+                        document.getElementById('editFileNameHidden').value = data.file.original_filename;
                         document.getElementById('editLabelId').value = data.file.label_id;
                         document.getElementById('editAccessLevelId').value = data.file.access_level_id;
                         new bootstrap.Modal(document.getElementById('editFileModal')).show();

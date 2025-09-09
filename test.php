@@ -1,186 +1,112 @@
 <?php
-// Test Export CSV functionality
-echo "=== TESTING EXPORT CSV FUNCTIONALITY ===\n\n";
+// filepath: d:\website\AES128\test.php
 
-// Set up session untuk testing
-session_start();
-$_SESSION['user_id'] = 2; // Set test user ID
-$_SESSION['user_level'] = 2;
+require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/models/File.php';
 
 try {
-    require_once __DIR__ . '/config/database.php';
-    require_once __DIR__ . '/controllers/FileManagerController.php';
+    echo "=== DEBUGGING FILE MODEL ===\n";
     
-    $fileManagerController = new FileManagerController($pdo);
+    // Check table structure
+    $stmt = $pdo->query("DESCRIBE files");
+    $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    echo "1. Testing exportMyFilesToCSV() function...\n";
-    echo "User ID: " . $_SESSION['user_id'] . "\n\n";
-    
-    // Test 1: Export without deleted files
-    echo "=== Test 1: Export active files only ===\n";
-    try {
-        $csvData = $fileManagerController->exportMyFilesToCSV(false);
-        
-        echo "✓ Export successful!\n";
-        echo "CSV Length: " . strlen($csvData) . " characters\n";
-        
-        // Parse CSV to count rows
-        $rows = explode("\n", trim($csvData));
-        $headerRow = array_shift($rows);
-        $dataRows = array_filter($rows); // Remove empty rows
-        
-        echo "Header: " . $headerRow . "\n";
-        echo "Data rows: " . count($dataRows) . "\n";
-        
-        if (count($dataRows) > 0) {
-            echo "Sample data row: " . $dataRows[0] . "\n";
-        }
-        
-        // Save to file for inspection
-        $filename = 'test_export_active_' . date('Y-m-d_H-i-s') . '.csv';
-        file_put_contents($filename, $csvData);
-        echo "✓ CSV saved to: $filename\n";
-        
-    } catch (Exception $e) {
-        echo "✗ Export failed: " . $e->getMessage() . "\n";
+    echo "Table 'files' columns:\n";
+    foreach ($columns as $col) {
+        echo "  - {$col['Field']} ({$col['Type']})\n";
     }
     
-    echo "\n" . str_repeat("=", 50) . "\n\n";
-    
-    // Test 2: Export with deleted files
-    echo "=== Test 2: Export including deleted files ===\n";
-    try {
-        $csvDataWithDeleted = $fileManagerController->exportMyFilesToCSV(true);
-        
-        echo "✓ Export with deleted files successful!\n";
-        echo "CSV Length: " . strlen($csvDataWithDeleted) . " characters\n";
-        
-        // Parse CSV to count rows
-        $rows = explode("\n", trim($csvDataWithDeleted));
-        $headerRow = array_shift($rows);
-        $dataRows = array_filter($rows);
-        
-        echo "Header: " . $headerRow . "\n";
-        echo "Data rows: " . count($dataRows) . "\n";
-        
-        if (count($dataRows) > 0) {
-            echo "Sample data row: " . $dataRows[0] . "\n";
+    // Check if file_description column exists
+    $hasDescriptionCol = false;
+    foreach ($columns as $col) {
+        if ($col['Field'] === 'file_description') {
+            $hasDescriptionCol = true;
+            break;
         }
-        
-        // Save to file for inspection
-        $filename = 'test_export_with_deleted_' . date('Y-m-d_H-i-s') . '.csv';
-        file_put_contents($filename, $csvDataWithDeleted);
-        echo "✓ CSV saved to: $filename\n";
-        
-    } catch (Exception $e) {
-        echo "✗ Export with deleted files failed: " . $e->getMessage() . "\n";
     }
     
-    echo "\n" . str_repeat("=", 50) . "\n\n";
+    echo "\nfile_description column exists: " . ($hasDescriptionCol ? 'YES' : 'NO') . "\n";
     
-    // Test 3: Direct file query to check data availability
-    echo "=== Test 3: Check available files for user ===\n";
-    try {
-        $stmt = $pdo->prepare("
-            SELECT f.*, l.name AS label_name, al.name AS file_access_level_name
-            FROM files f
-            LEFT JOIN labels l ON f.label_id = l.id
-            LEFT JOIN access_levels al ON f.access_level_id = al.id
-            WHERE f.uploaded_by = ?
-            ORDER BY f.uploaded_at DESC
-        ");
-        $stmt->execute([$_SESSION['user_id']]);
-        $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (!$hasDescriptionCol) {
+        echo "\n❌ MISSING file_description COLUMN!\n";
+        echo "Run this SQL to fix:\n";
+        echo "ALTER TABLE files ADD COLUMN file_description TEXT NULL AFTER original_filename;\n";
+        exit(1); // Exit with error code
+    } else {
+        echo "\n✅ file_description column found\n";
         
-        echo "Total files found in database: " . count($files) . "\n";
+        // Test FileModel instantiation - FIXED: Use correct class name
+        echo "\nTesting FileModel instantiation...\n";
+        $fileModel = new FileModel($pdo);
+        echo "✅ FileModel created successfully\n";
         
-        if (count($files) > 0) {
-            echo "\nFile details:\n";
-            foreach ($files as $index => $file) {
-                $filename = base64_decode($file['original_filename']);
-                $status = $file['deleted_at'] ? 'DELETED' : 'ACTIVE';
-                $size = strlen($file['file_data']);
-                
-                echo sprintf(
-                    "%d. %s (%s) - %s - %d bytes - %s\n",
-                    $index + 1,
-                    $filename,
-                    $file['label_name'] ?? 'No Label',
-                    $status,
-                    $size,
-                    $file['uploaded_at']
-                );
+        $testData = [
+            'filename' => 'test_debug_' . time(),
+            'original_filename' => base64_encode('test_debug.txt'),
+            'file_description' => 'Test description for debugging',
+            'mime_type' => base64_encode('text/plain'),
+            'file_data' => 'test content data for debugging',
+            'label_id' => 1,
+            'access_level_id' => 1,
+            'encryption_iv' => '',
+            'restricted_password_hash' => null,
+            'uploaded_by' => 1
+        ];
+        
+        echo "\nTest data prepared:\n";
+        echo "  - filename: " . $testData['filename'] . "\n";
+        echo "  - original_filename (decoded): " . base64_decode($testData['original_filename']) . "\n";
+        echo "  - file_description: " . $testData['file_description'] . "\n";
+        echo "  - file_data length: " . strlen($testData['file_data']) . " bytes\n";
+        
+        echo "\nTesting FileModel save method...\n";
+        $result = $fileModel->save($testData);
+        
+        if ($result) {
+            $insertId = $pdo->lastInsertId();
+            echo "✅ FileModel save test PASSED\n";
+            echo "Last insert ID: " . $insertId . "\n";
+            
+            // Verify data was saved correctly
+            echo "\nVerifying saved data...\n";
+            $stmt = $pdo->prepare("SELECT * FROM files WHERE id = ?");
+            $stmt->execute([$insertId]);
+            $savedFile = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($savedFile) {
+                echo "✅ File saved and retrieved successfully\n";
+                echo "  - ID: " . $savedFile['id'] . "\n";
+                echo "  - Filename: " . $savedFile['filename'] . "\n";
+                echo "  - Original filename (decoded): " . base64_decode($savedFile['original_filename']) . "\n";
+                echo "  - File description: " . ($savedFile['file_description'] ?? 'NULL') . "\n";
+                echo "  - File data length: " . strlen($savedFile['file_data']) . " bytes\n";
+                echo "  - Uploaded at: " . $savedFile['uploaded_at'] . "\n";
+                echo "  - Uploaded by: " . $savedFile['uploaded_by'] . "\n";
+            } else {
+                echo "❌ Could not retrieve saved file\n";
             }
+            
         } else {
-            echo "No files found for user ID: " . $_SESSION['user_id'] . "\n";
-            echo "Try uploading some files first or change the user ID in this test script.\n";
-        }
-        
-    } catch (Exception $e) {
-        echo "✗ Database query failed: " . $e->getMessage() . "\n";
-    }
-    
-    echo "\n" . str_repeat("=", 50) . "\n\n";
-    
-    // Test 4: Test CSV format validation
-    echo "=== Test 4: CSV Format Validation ===\n";
-    if (isset($csvData) && !empty($csvData)) {
-        $lines = explode("\n", $csvData);
-        $header = str_getcsv($lines[0]);
-        
-        echo "Expected CSV columns:\n";
-        $expectedColumns = ['ID', 'Filename', 'Label', 'Access Level', 'File Size', 'Downloads', 'Uploaded At', 'Status'];
-        foreach ($expectedColumns as $col) {
-            $found = in_array($col, $header);
-            echo "  " . ($found ? "✓" : "✗") . " $col\n";
-        }
-        
-        echo "\nActual header columns:\n";
-        foreach ($header as $col) {
-            echo "  - $col\n";
-        }
-        
-        // Test CSV parsing
-        if (count($lines) > 1 && !empty(trim($lines[1]))) {
-            $sampleData = str_getcsv($lines[1]);
-            echo "\nSample data parsing:\n";
-            foreach ($header as $index => $column) {
-                $value = $sampleData[$index] ?? 'N/A';
-                echo "  $column: $value\n";
+            echo "❌ FileModel save test FAILED\n";
+            
+            // Check PDO error info
+            $errorInfo = $pdo->errorInfo();
+            if ($errorInfo[0] !== '00000') {
+                echo "SQL Error: " . $errorInfo[2] . "\n";
+                echo "SQL State: " . $errorInfo[0] . "\n";
+                echo "Error Code: " . $errorInfo[1] . "\n";
             }
+            exit(1); // Exit with error code
         }
     }
     
-    echo "\n" . str_repeat("=", 50) . "\n\n";
-    
-    // Test 5: Test different user scenarios
-    echo "=== Test 5: Test with different user IDs ===\n";
-    $testUserIds = [1, 2, 3];
-    
-    foreach ($testUserIds as $testUserId) {
-        echo "Testing user ID: $testUserId\n";
-        $_SESSION['user_id'] = $testUserId;
-        
-        try {
-            $testCsvData = $fileManagerController->exportMyFilesToCSV(false);
-            $testRows = explode("\n", trim($testCsvData));
-            $testDataRows = array_filter(array_slice($testRows, 1)); // Remove header and empty rows
-            
-            echo "  Files found: " . count($testDataRows) . "\n";
-            
-        } catch (Exception $e) {
-            echo "  Error: " . $e->getMessage() . "\n";
-        }
-    }
-    
-    // Reset to original test user
-    $_SESSION['user_id'] = 2;
-    
-    echo "\n=== EXPORT CSV TESTING COMPLETE ===\n";
-    echo "Check the generated CSV files in the current directory for manual inspection.\n";
+    echo "\n✅ ALL TESTS PASSED - file_description functionality working correctly\n";
     
 } catch (Exception $e) {
-    echo "✗ Test setup failed: " . $e->getMessage() . "\n";
+    echo "❌ Error: " . $e->getMessage() . "\n";
     echo "Stack trace:\n" . $e->getTraceAsString() . "\n";
+    exit(1); // Exit with error code
 }
-?>
+
+echo "\n=== DEBUG COMPLETE ===\n";
+exit(0); // Exit successfully

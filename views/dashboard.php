@@ -549,6 +549,7 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
                                 <span class="lock-badge" style="background: #ffc107; color: #212529;">OVERRIDE</span>
                             <?php endif; ?>
                         </th>
+                        <th>Description</th>
                         <th>Label</th>
                         <th>Upload Date</th>
                         <th>Downloads</th>
@@ -559,7 +560,6 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
                 <tbody>
                     <?php foreach ($files as $file): ?>
                         <?php 
-                        // DEBUG: Check restricted status
                         $isRestricted = !empty($file['restricted_password_hash']) || !empty($file['is_restricted_file']);
                         error_log("File ID {$file['id']}: restricted_password_hash = " . ($file['restricted_password_hash'] ?? 'NULL') . ", is_restricted = " . ($isRestricted ? 'YES' : 'NO'));
                         ?>
@@ -571,6 +571,42 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
                                         <span class="restricted-badge">🔒 RESTRICTED</span>
                                     <?php endif; ?>
                                 </div>
+                            </td>
+                            <td>
+                                <?php if (!empty($file['description_text'])): ?>
+                                    <div class="file-description">
+                                        <div class="description-preview">
+                                            <?= nl2br(htmlspecialchars(substr($file['description_text'], 0, 100))) ?>
+                                            <?php if (strlen($file['description_text']) > 100): ?>
+                                                <span class="description-more">...</span>
+                                                <button 
+                                                    type="button" 
+                                                    class="btn-link show-full-description" 
+                                                    onclick="toggleFullDescription(<?= $file['id'] ?>)"
+                                                    style="padding: 0; margin-left: 5px; font-size: 11px; color: #007bff; background: none; border: none; text-decoration: underline; cursor: pointer;"
+                                                >
+                                                    Show More
+                                                </button>
+                                            <?php endif; ?>
+                                        </div>
+                                        
+                                        <?php if (strlen($file['description_text']) > 100): ?>
+                                            <div class="description-full" id="description_full_<?= $file['id'] ?>" style="display: none;">
+                                                <?= nl2br(htmlspecialchars($file['description_text'])) ?>
+                                                <button 
+                                                    type="button" 
+                                                    class="btn-link show-less-description" 
+                                                    onclick="toggleFullDescription(<?= $file['id'] ?>)"
+                                                    style="padding: 0; margin-left: 5px; font-size: 11px; color: #007bff; background: none; border: none; text-decoration: underline; cursor: pointer;"
+                                                >
+                                                    Show Less
+                                                </button>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <span style="color: #6c757d; font-style: italic; font-size: 12px;">No description</span>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <span class="label-badge" style="background-color: <?= htmlspecialchars($file['label_color'] ?? '#6c757d') ?>">
@@ -729,6 +765,22 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
             }
         }
     </style>
+
+    <!-- TAMBAHAN: JavaScript untuk toggle description functionality -->
+    <script>
+        function toggleFullDescription(fileId) {
+            const preview = document.querySelector(`#description_full_${fileId}`).previousElementSibling;
+            const full = document.getElementById(`description_full_${fileId}`);
+            
+            if (full.style.display === 'none') {
+                preview.style.display = 'none';
+                full.style.display = 'block';
+            } else {
+                preview.style.display = 'block';
+                full.style.display = 'none';
+            }
+        }
+    </script>
 
     <!-- TAMBAHAN: JavaScript untuk password handling dan download -->
     <script>

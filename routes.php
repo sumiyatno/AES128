@@ -188,11 +188,12 @@ function handleUpload() {
             $uploadData['file'],
             $uploadData['label_id'],
             $uploadData['access_level_id'],
-            $uploadData['restricted_password']
+            $uploadData['restricted_password'],
+            $uploadData['file_description']
         );
         
         if ($result) {
-            error_log("Upload successful - File ID: $result");
+            error_log("Upload successful - File ID: $result, Has description: " . (!empty($uploadData['file_description']) ? 'YES' : 'NO'));
             header('Location: views/dashboard.php?status=upload_success');
         } else {
             throw new Exception('Upload failed - no result returned');
@@ -870,6 +871,17 @@ function extractUploadData() {
     $labelId = (int)$_POST['label_id'];
     $restrictedPassword = !empty($_POST['restricted_password']) ? trim($_POST['restricted_password']) : null;
     
+    
+
+    // TAMBAHAN: Extract file description
+    $fileDescription = !empty($_POST['file_description']) ? trim($_POST['file_description']) : null;
+
+    // Validate dan limit description length
+    if ($fileDescription && strlen($fileDescription) > 1000) {
+        $fileDescription = substr($fileDescription, 0, 1000);
+        error_log("File description truncated to 1000 characters");
+    }
+
     // FIXED: Cek apakah label adalah "restricted"
     $labelModel = new Label($pdo);
     $label = $labelModel->find($labelId);
@@ -889,6 +901,11 @@ function extractUploadData() {
     if (!$isRestrictedLabel && !empty($restrictedPassword)) {
         throw new Exception('Password only allowed for restricted label files');
     }
+
+     // Log info description
+    if ($fileDescription) {
+        error_log("File description provided: " . strlen($fileDescription) . " characters");
+    }
     
     return [
         'file' => $_FILES['file'],
@@ -896,6 +913,7 @@ function extractUploadData() {
         'access_level_id' => (int)$_POST['access_level_id'],
         'is_restricted' => $isRestrictedLabel,
         'restricted_password' => $isRestrictedLabel ? $restrictedPassword : null,
+        'file_description' => $fileDescription,
         'label' => $label
     ];
 }

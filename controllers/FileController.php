@@ -72,7 +72,7 @@ class FileController {
     /**
      * Upload file dengan enkripsi dan logging - UPDATED dengan uploaded_by tracking
      */
-    public function upload($file, $label_id, $access_level_id, $restricted_password = null) {
+    public function upload($file, $label_id, $access_level_id, $restricted_password = null, $file_description = null) {
         // Pastikan user sudah login
         if (!$this->isAuthenticated()) {
             throw new RuntimeException("User harus login untuk upload file");
@@ -120,10 +120,20 @@ class FileController {
             encrypt_file($file['tmp_name'], $tmpEncPath, $fileId, $file['name'], $userSecret);
             $encData = file_get_contents($tmpEncPath);
 
+            // TAMBAHAN: Clean dan validate file description
+            $cleanDescription = null;
+            if (!empty($file_description)) {
+                $cleanDescription = trim($file_description);
+                if (strlen($cleanDescription) > 1000) {
+                    $cleanDescription = substr($cleanDescription, 0, 1000);
+                }
+            }
+
             // Prepare data untuk save dengan uploaded_by
             $fileData = [
                 'filename' => $fileId,
                 'original_filename' => base64_encode($file['name']),
+                'file_description' => $cleanDescription, // TAMBAHAN INI
                 'mime_type' => base64_encode($file['type']),
                 'file_data' => $encData,
                 'label_id' => $label_id,
@@ -149,7 +159,9 @@ class FileController {
                     'access_level_id' => $access_level_id,
                     'is_restricted_by_label' => $isRestrictedLabel ? 'yes' : 'no',
                     'uploaded_by' => $uploadedBy,
-                    'file_db_id' => $insertedId
+                    'file_db_id' => $insertedId,
+                    'has_description' => !empty($cleanDescription) ? 'yes' : 'no',
+                    'description_length' => strlen($cleanDescription ?? '')
                 ]);
                 
                 unlink($tmpEncPath);
@@ -354,13 +366,49 @@ class FileController {
                 $f["display_mode"] = "normal";
             }
             
-            // Tambah info global mode
-            $f["global_mode"] = $globalMode;
-            $f["is_locked"] = ($globalMode === 'encrypted');
+            // TAMBAHAN: Process deskripsi file
+        $f["file_description"] = $f["file_description"] ?? null;
+        $f["has_description"] = !empty($f["file_description"]);
+        
+        // Parse deskripsi untuk ekstrak nama file user dan deskripsi
+        if ($f["has_description"]) {
+            $description = $f["file_description"];
+            $lines = explode("\n", $description);
+            
+            // Cari baris yang dimulai dengan "Nama File:"
+            $userFileName = null;
+            $actualDescription = [];
+            $foundNameLine = false;
+            
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if (preg_match('/^Nama File\s*:\s*(.+)$/i', $line, $matches)) {
+                    $userFileName = trim($matches[1]);
+                    $foundNameLine = true;
+                } elseif (preg_match('/^Deskripsi\s*:\s*(.*)$/i', $line, $matches)) {
+                    $actualDescription[] = trim($matches[1]);
+                } elseif ($foundNameLine && !empty($line)) {
+                    // Baris setelah nama file dianggap deskripsi
+                    $actualDescription[] = $line;
+                }
+            }
+            
+            $f["user_file_name"] = $userFileName;
+            $f["description_text"] = implode("\n", array_filter($actualDescription));
+        } else {
+            $f["user_file_name"] = null;
+            $f["description_text"] = null;
         }
         
-        return $files;
+        // Tambah info global mode
+        $f["global_mode"] = $globalMode;
+        $f["is_locked"] = ($globalMode === 'encrypted');
+
     }
+
+    return $files;
+}
+
 
     /**
      * Encrypt filename dengan AES-256 untuk display superadmin

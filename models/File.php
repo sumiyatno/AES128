@@ -24,12 +24,13 @@ class FileModel {
     // Simpan file baru dengan uploaded_by
     public function save($data) {
         $stmt = $this->pdo->prepare('
-            INSERT INTO files (filename, original_filename, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash, uploaded_by, uploaded_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            INSERT INTO files (filename, original_filename, file_description, mime_type, file_data, label_id, access_level_id, encryption_iv, restricted_password_hash, uploaded_by, uploaded_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
         ');
         return $stmt->execute([
             $data['filename'],
             $data['original_filename'],
+            $data['file_description'] ?? null,
             $data['mime_type'],
             $data['file_data'],
             $data['label_id'],
