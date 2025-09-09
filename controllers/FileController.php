@@ -348,34 +348,69 @@ class FileController {
         }
     }
 
+
+/**
+ * Encrypt display name (baik dari description atau original filename) - METHOD BARU
+ */
+private function encryptDisplayName($displayName) {
+    try {
+        // Load environment variables
+        if (file_exists(__DIR__ . '/../config/.env')) {
+            $lines = file(__DIR__ . '/../config/.env', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            foreach ($lines as $line) {
+                if (strpos($line, '=') !== false && strpos($line, '#') !== 0) {
+                    list($key, $value) = explode('=', $line, 2);
+                    $_ENV[trim($key)] = trim($value);
+                }
+            }
+        }
+        
+        $masterSecret = $_ENV['MASTER_SECRET'] ?? 'default_secret_key_for_display';
+        
+        // Encrypt dengan AES-256-CBC
+        $key = hash('sha256', $masterSecret . 'display_name_encryption', true);
+        $iv = openssl_random_pseudo_bytes(16);
+        $encrypted = openssl_encrypt($displayName, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv);
+        
+        if ($encrypted === false) {
+            return "[Encryption Error]";
+        }
+        
+        $encryptedWithIv = base64_encode($iv . $encrypted);
+        return "🔐 " . substr($encryptedWithIv, 0, 32) . "...";
+        
+    } catch (Exception $e) {
+        error_log("Display name encryption error: " . $e->getMessage());
+        return "[Encryption Error]";
+    }
+}
+
     /**
      * Process filenames dengan deteksi restricted yang benar
      */
-    private function processFilenamesForDisplay($files, $userLevel, $showEncrypted = false, $globalMode = 'normal') {
-        foreach ($files as &$f) {
-            // FIXED: Deteksi restricted berdasarkan database field
-            $f['is_restricted_file'] = !empty($f['restricted_password_hash']);
-            
-            if ($showEncrypted) {
-                // Mode encrypted: tampilkan nama ter-encrypt dengan AES-256
-                $f["decrypted_name"] = $this->encryptFilenameAES256($f["original_filename"]);
-                $f["display_mode"] = "encrypted";
-            } else {
-                // Mode normal: decode nama asli
-                $f["decrypted_name"] = base64_decode($f["original_filename"]);
-                $f["display_mode"] = "normal";
-            }
-            
-            // TAMBAHAN: Process deskripsi file
+ private function processFilenamesForDisplay($files, $userLevel, $showEncrypted = false, $globalMode = 'normal') {
+    foreach ($files as &$f) {
+        // FIXED: Deteksi restricted berdasarkan database field
+        $f['is_restricted_file'] = !empty($f['restricted_password_hash']);
+        
+        if ($showEncrypted) {
+            // Mode encrypted: tampilkan nama ter-encrypt dengan AES-256
+            $f["decrypted_name"] = $this->encryptFilenameAES256($f["original_filename"]);
+            $f["display_mode"] = "encrypted";
+        } else {
+            // Mode normal: decode nama asli
+            $f["decrypted_name"] = base64_decode($f["original_filename"]);
+            $f["display_mode"] = "normal";
+        }
+        
+        // TAMBAHAN: Process deskripsi file
         $f["file_description"] = $f["file_description"] ?? null;
         $f["has_description"] = !empty($f["file_description"]);
         
-        // Parse deskripsi untuk ekstrak nama file user dan deskripsi
         if ($f["has_description"]) {
             $description = $f["file_description"];
             $lines = explode("\n", $description);
             
-            // Cari baris yang dimulai dengan "Nama File:"
             $userFileName = null;
             $actualDescription = [];
             $foundNameLine = false;
@@ -388,26 +423,43 @@ class FileController {
                 } elseif (preg_match('/^Deskripsi\s*:\s*(.*)$/i', $line, $matches)) {
                     $actualDescription[] = trim($matches[1]);
                 } elseif ($foundNameLine && !empty($line)) {
-                    // Baris setelah nama file dianggap deskripsi
                     $actualDescription[] = $line;
                 }
             }
             
-            $f["user_file_name"] = $userFileName;
+            $f["user_file_name"]   = $userFileName;
             $f["description_text"] = implode("\n", array_filter($actualDescription));
-        } else {
-            $f["user_file_name"] = null;
-            $f["description_text"] = null;
+            
+            // MODIFIED: Logic display name
+            if ($showEncrypted) {
+                if (!empty($userFileName)) {
+                    $f["decrypted_name"] = $this->encryptDisplayName($userFileName);
+                    $f["display_source"] = "user_description_encrypted";
+                } else {
+                    $originalName = base64_decode($f["original_filename"]);
+                    $f["decrypted_name"] = $this->encryptDisplayName($originalName);
+                    $f["display_source"] = "original_filename_encrypted";
+                }
+                $f["display_mode"] = "encrypted";
+            } else {
+                if (!empty($userFileName)) {
+                    $f["decrypted_name"] = $userFileName;
+                    $f["display_source"] = "user_description";
+                } else {
+                    $f["decrypted_name"] = base64_decode($f["original_filename"]);
+                    $f["display_source"] = "original_filename";
+                }
+                $f["display_mode"] = "normal";
+            }
+            
+            $f["global_mode"] = $globalMode;
+            $f["is_locked"]   = ($globalMode === 'encrypted');
         }
-        
-        // Tambah info global mode
-        $f["global_mode"] = $globalMode;
-        $f["is_locked"] = ($globalMode === 'encrypted');
-
     }
-
-    return $files;
+    
+    return $files; // ✅ taruh di luar foreach
 }
+
 
 
     /**

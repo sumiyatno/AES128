@@ -403,6 +403,16 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
             gap: 15px;
             flex-wrap: wrap;
         }
+
+        .name-source-badge {
+            background: #17a2b8;
+            color: white;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-size: 9px;
+            margin-left: 5px;
+            font-weight: bold;
+        }
         
         /* Responsive */
         @media (max-width: 768px) {
@@ -567,10 +577,24 @@ $globalMode = !empty($files) ? $files[0]['global_mode'] ?? 'normal' : 'normal';
                             <td>
                                 <div class="file-name">
                                     <?= htmlspecialchars($file['decrypted_name']) ?>
+                                    <!-- UPDATED: Badge yang menunjukkan source dan encryption status -->
+                                    <?php if (isset($file['display_source'])): ?>
+                                        <?php if ($file['display_source'] === 'user_description'): ?>
+                                            <span class="name-source-badge" title="Custom name from description">📝 Custom</span>
+                                        <?php elseif ($file['display_source'] === 'user_description_encrypted'): ?>
+                                            <span class="name-source-badge" title="Encrypted custom name from description" style="background: #6f42c1;">🔐 Custom</span>
+                                        <?php elseif ($file['display_source'] === 'original_filename'): ?>
+                                            <span class="name-source-badge" title="Original filename">📁 Original</span>
+                                        <?php elseif ($file['display_source'] === 'original_filename_encrypted'): ?>
+                                            <span class="name-source-badge" title="Encrypted original filename" style="background: #6f42c1;">🔐 Original</span>
+                                        <?php endif; ?>
+                                    <?php endif; ?>
+
                                     <?php if ($isRestricted): ?>
                                         <span class="restricted-badge">🔒 RESTRICTED</span>
                                     <?php endif; ?>
                                 </div>
+                                
                             </td>
                             <td>
                                 <?php if (!empty($file['description_text'])): ?>
