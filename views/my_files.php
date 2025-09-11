@@ -14,6 +14,10 @@ if (!$authController->isLoggedIn()) {
 
 $fileManagerController = new FileManagerController($pdo);
 
+// TAMBAHAN: Check if user is admin untuk show admin mode
+$isAdmin = ($_SESSION['user_level'] ?? 1) >= 3;
+$adminMode = isset($_GET['admin_mode']) && $isAdmin;
+
 
 // ADD: Handle CSV Export BEFORE any HTML output
 if (isset($_GET['export']) && $_GET['export'] === 'csv') {
@@ -106,6 +110,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $messageType = 'error';
                 }
                 break;
+
+            // TAMBAHAN: Admin actions
+            case 'admin_update_file':
+                if (!$isAdmin) {
+                    throw new RuntimeException("Akses ditolak - Admin only");
+                }
+                $fileId = (int)($_POST['file_id'] ?? 0);
+                $newName = trim($_POST['new_name'] ?? '');
+                $labelId = (int)($_POST['label_id'] ?? 0);
+                $accessLevelId = (int)($_POST['access_level_id'] ?? 0);
+                $newOwnerId = !empty($_POST['new_owner_id']) ? (int)$_POST['new_owner_id'] : null;
+                
+                if ($fileManagerController->adminUpdateFileMetadata($fileId, $newName, $labelId, $accessLevelId, $newOwnerId)) {
+                    $message = 'File berhasil diupdate oleh admin';
+                    $messageType = 'success';
+                } else {
+                    $message = 'Gagal mengupdate file';
+                    $messageType = 'error';
+                }
+                break;
+                
+            case 'admin_delete_file':
+                if (!$isAdmin) {
+                    throw new RuntimeException("Akses ditolak - Admin only");
+                }
+                $fileId = (int)($_POST['file_id'] ?? 0);
+                $hardDelete = isset($_POST['hard_delete']);
+                
+                if ($fileManagerController->adminDeleteFile($fileId, $hardDelete)) {
+                    $message = 'File berhasil dihapus oleh admin';
+                    $messageType = 'success';
+                } else {
+                    $message = 'Gagal menghapus file';
+                    $messageType = 'error';
+                }
+                break;
+                
+            case 'admin_restore_file':
+                if (!$isAdmin) {
+                    throw new RuntimeException("Akses ditolak - Admin only");
+                }
+                $fileId = (int)($_POST['file_id'] ?? 0);
+                
+                if ($fileManagerController->adminRestoreFile($fileId)) {
+                    $message = 'File berhasil direstore oleh admin';
+                    $messageType = 'success';
+                } else {
+                    $message = 'Gagal merestore file';
+                    $messageType = 'error';
+                }
+                break;
+                
+            case 'transfer_ownership':
+                if (!$isAdmin) {
+                    throw new RuntimeException("Akses ditolak - Admin only");
+                }
+                $fileId = (int)($_POST['file_id'] ?? 0);
+                $newOwnerId = (int)($_POST['new_owner_id'] ?? 0);
+                
+                if ($fileManagerController->transferFileOwnership($fileId, $newOwnerId)) {
+                    $message = 'Ownership berhasil ditransfer';
+                    $messageType = 'success';
+                } else {
+                    $message = 'Gagal transfer ownership';
+                    $messageType = 'error';
+                }
+                break;
                 
             case 'bulk_delete':
                 $fileIds = $_POST['file_ids'] ?? [];
@@ -128,14 +199,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'bulk_permanent_delete':
                 $fileIds = $_POST['file_ids'] ?? [];
                 
+                // DEBUGGING: Log received data
+                error_log("BULK PERMANENT DELETE RECEIVED: " . json_encode($_POST));
+                error_log("File IDs: " . json_encode($fileIds));
+                error_log("Is Admin: " . ($isAdmin ? 'YES' : 'NO'));
+                error_log("Admin Mode: " . ($adminMode ? 'YES' : 'NO'));
+                
                 if (!empty($fileIds)) {
-                    $results = $fileManagerController->bulkPermanentDeleteFiles($fileIds);
+                    // Gunakan admin bulk permanent delete jika admin
+                    if ($isAdmin && $adminMode) {
+                        error_log("Using adminBulkPermanentDeleteFiles");
+                        $results = $fileManagerController->adminBulkPermanentDeleteFiles($fileIds);
+                    } else {
+                        error_log("Using bulkPermanentDeleteFiles");
+                        $results = $fileManagerController->bulkPermanentDeleteFiles($fileIds);
+                    }
+                    
                     $successCount = count(array_filter($results, function($r) { return $r['success']; }));
                     $totalCount = count($results);
+                    
+                    // Log untuk debugging
+                    error_log("BULK PERMANENT DELETE UI RESULT: Success=$successCount, Total=$totalCount, Admin=" . ($isAdmin && $adminMode ? 'YES' : 'NO'));
+                    error_log("Detailed results: " . json_encode($results));
                     
                     $message = "Berhasil menghapus permanen $successCount dari $totalCount file";
                     $messageType = $successCount > 0 ? 'success' : 'error';
                 } else {
+                    error_log("BULK PERMANENT DELETE: No file IDs provided");
                     $message = 'Pilih file yang akan dihapus permanen';
                     $messageType = 'error';
                 }
@@ -167,9 +257,22 @@ $limit = max(5, min(50, (int)($_GET['limit'] ?? 10)));
 $includeDeleted = isset($_GET['include_deleted']);
 $searchTerm = trim($_GET['search'] ?? '');
 $labelFilter = trim($_GET['label_filter'] ?? '');
+$userFilter = $isAdmin ? trim($_GET['user_filter'] ?? '') : ''; // Admin only
 
 // Get data
-$result = $fileManagerController->getMyFiles($page, $limit, $includeDeleted, $searchTerm, $labelFilter);
+// MODIFIKASI: Get data berdasarkan admin mode
+if ($adminMode) {
+    // Admin mode: get all files
+    $result = $fileManagerController->getAllFiles($page, $limit, $includeDeleted, $searchTerm, $labelFilter, $userFilter);
+    $systemStats = $fileManagerController->getSystemFileStats();
+    $allUsers = $fileManagerController->getAllUsers(); // untuk dropdown filter
+} else {
+    // Normal mode: get user files only
+    $result = $fileManagerController->getMyFiles($page, $limit, $includeDeleted, $searchTerm, $labelFilter);
+    $systemStats = null;
+    $allUsers = [];
+}
+
 $files = $result['files'];
 $pagination = $result['pagination'];
 
@@ -229,6 +332,30 @@ $userInfo = $authController->getCurrentUser();
             border-radius: 8px;
             margin-bottom: 20px;
         }
+
+        /* TAMBAHAN: Admin mode styles */
+        .admin-mode {
+            background: linear-gradient(135deg, #dc3545 0%, #6f42c1 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .owner-info {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+        .admin-badge {
+            background: #dc3545;
+            color: white;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-size: 0.7rem;
+            margin-left: 5px;
+        }
+
+
     </style>
 </head>
 <body>
@@ -252,11 +379,28 @@ $userInfo = $authController->getCurrentUser();
         <div class="row">
             <!-- Sidebar -->
             <div class="col-md-3">
-                <div class="card stats-card mb-4">
+                <div class="card <?= $adminMode ? 'admin-mode' : 'stats-card' ?> mb-4">
                     <div class="card-body">
                         <h5 class="card-title">
-                            <i class="fas fa-chart-bar me-2"></i>Statistik File
+                            <i class="fas fa-<?= $adminMode ? 'shield-alt' : 'chart-bar' ?> me-2"></i>
+                            <?= $adminMode ? 'Admin Mode' : 'Statistik File' ?>
                         </h5>
+                        <?php if ($adminMode): ?>
+                        <div class="row text-center">
+                            <div class="col-4">
+                                <h4><?= $systemStats['total_files'] ?? 0 ?></h4>
+                                <small>Total</small>
+                            </div>
+                            <div class="col-4">
+                                <h4><?= $systemStats['active_files'] ?? 0 ?></h4>
+                                <small>Aktif</small>
+                            </div>
+                            <div class="col-4">
+                                <h4><?= $systemStats['deleted_files'] ?? 0 ?></h4>
+                                <small>Dihapus</small>
+                            </div>
+                        </div>
+                        <?php else: ?>
                         <div class="row text-center">
                             <div class="col-4">
                                 <h4><?= $stats['total_files'] ?? 0 ?></h4>
@@ -271,6 +415,7 @@ $userInfo = $authController->getCurrentUser();
                                 <small>Ukuran</small>
                             </div>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -283,6 +428,19 @@ $userInfo = $authController->getCurrentUser();
                     </div>
                     <div class="card-body">
                         <div class="d-grid gap-2">
+                            <?php if ($isAdmin): ?>
+                            <!-- TAMBAHAN: Admin mode toggle -->
+                            <?php if ($adminMode): ?>
+                            <a href="?admin_mode=0" class="btn btn-outline-secondary btn-sm">
+                                <i class="fas fa-user me-1"></i>Mode User
+                            </a>
+                            <?php else: ?>
+                            <a href="?admin_mode=1" class="btn btn-danger btn-sm">
+                                <i class="fas fa-shield-alt me-1"></i>Mode Admin
+                            </a>
+                            <?php endif; ?>
+                            <?php endif; ?>
+
                             <a href="upload_form.php" class="btn btn-primary btn-sm">
                                 <i class="fas fa-upload me-1"></i>Upload File
                             </a>
@@ -301,9 +459,12 @@ $userInfo = $authController->getCurrentUser();
             <div class="col-md-9">
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2>
-                        <i class="fas fa-folder-open me-2"></i>File Manager
+                        <i class="fas fa-<?= $adminMode ? 'shield-alt' : 'folder-open' ?> me-2"></i>
+                        <?= $adminMode ? 'Admin File Manager' : 'File Manager' ?>
                     </h2>
-                    <span class="badge bg-info fs-6"><?= $pagination['total_files'] ?> files</span>
+                    <span class="badge bg-<?= $adminMode ? 'danger' : 'info' ?> fs-6">
+                        <?= $pagination['total_files'] ?> files
+                    </span>
                 </div>
 
                 <!-- Flash Messages -->
@@ -317,11 +478,15 @@ $userInfo = $authController->getCurrentUser();
                 <!-- Filter Section -->
                 <div class="filter-section">
                     <form method="GET" class="row g-3">
-                        <div class="col-md-4">
+                        <?php if ($adminMode): ?>
+                        <input type="hidden" name="admin_mode" value="1">
+                        <?php endif; ?>
+
+                         <div class="col-md-<?= $adminMode ? '3' : '4' ?>">
                             <input type="text" class="form-control" name="search" 
                                    placeholder="Cari nama file..." value="<?= htmlspecialchars($searchTerm) ?>">
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-<?= $adminMode ? '2' : '3' ?>">
                             <select name="label_filter" class="form-select">
                                 <option value="">Semua Label</option>
                                 <?php foreach ($labels as $label): ?>
@@ -331,6 +496,21 @@ $userInfo = $authController->getCurrentUser();
                                 <?php endforeach; ?>
                             </select>
                         </div>
+
+                        <?php if ($adminMode): ?>
+                        <!-- TAMBAHAN: User filter untuk admin -->
+                        <div class="col-md-3">
+                            <select name="user_filter" class="form-select">
+                                <option value="">Semua User</option>
+                                <?php foreach ($allUsers as $user): ?>
+                                <option value="<?= $user['id'] ?>" <?= $userFilter == $user['id'] ? 'selected' : '' ?>>
+                                    <?= htmlspecialchars($user['username']) ?> (<?= $user['file_count'] ?> files)
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <?php endif; ?>
+
                         <div class="col-md-2">
                             <select name="limit" class="form-select">
                                 <option value="10" <?= $limit == 10 ? 'selected' : '' ?>>10/halaman</option>
@@ -338,12 +518,12 @@ $userInfo = $authController->getCurrentUser();
                                 <option value="50" <?= $limit == 50 ? 'selected' : '' ?>>50/halaman</option>
                             </select>
                         </div>
-                        <div class="col-md-3">
+                        <div class="col-md-<?= $adminMode ? '2' : '3' ?>">
                             <div class="btn-group w-100">
-                                <button type="submit" class="btn btn-primary">
+                                <button type="submit" class="btn btn-<?= $adminMode ? 'danger' : 'primary' ?>">
                                     <i class="fas fa-search"></i> Cari
                                 </button>
-                                <a href="my_files.php" class="btn btn-outline-secondary">
+                                <a href="my_files.php<?= $adminMode ? '?admin_mode=1' : '' ?>" class="btn btn-outline-secondary">
                                     <i class="fas fa-times"></i>
                                 </a>
                             </div>
@@ -364,6 +544,9 @@ $userInfo = $authController->getCurrentUser();
                 <div id="bulkActions" class="alert alert-warning" style="display: none;">
                     <form method="POST" id="bulkForm">
                         <input type="hidden" name="action" value="bulk_delete" id="bulkAction">
+                        <?php if ($adminMode): ?>
+                        <input type="hidden" name="admin_mode" value="1">
+                        <?php endif; ?>
                         <div class="d-flex align-items-center gap-3">
                             <span><strong id="selectedCount">0</strong> file dipilih</span>
                             <button type="submit" class="btn btn-danger btn-sm" onclick="setBulkAction('bulk_delete')">
@@ -415,6 +598,15 @@ $userInfo = $authController->getCurrentUser();
                                 </span>
                                 <?php endif; ?>
 
+                                 <!-- TAMBAHAN: Admin badges -->
+                                <?php if ($adminMode && !empty($file['admin_badges'])): ?>
+                                    <?php if (in_array('admin_owner', $file['admin_badges'])): ?>
+                                    <span class="admin-badge" style="top: 35px; right: 10px; position: absolute;">
+                                        <i class="fas fa-shield-alt"></i> Admin
+                                    </span>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+
                                 <!-- File icon -->
                                 <div class="file-icon text-primary">
                                     <?php
@@ -437,6 +629,18 @@ $userInfo = $authController->getCurrentUser();
                                     <?= htmlspecialchars($file['decrypted_name']) ?>
                                 </h6>
 
+                                <!-- TAMBAHAN: Owner info untuk admin mode -->
+                                <?php if ($adminMode && isset($file['owner_info'])): ?>
+                                <div class="owner-info">
+                                    <i class="fas fa-user"></i> 
+                                    <strong><?= htmlspecialchars($file['owner_info']['username']) ?></strong>
+                                    <br>
+                                    <small><?= htmlspecialchars($file['owner_info']['email']) ?></small>
+                                    <br>
+                                    <span class="badge bg-secondary">Level <?= $file['owner_info']['level'] ?></span>
+                                </div>
+                                <?php endif; ?>
+
                                 <!-- File info -->
                                 <div class="file-size"><?= $file['file_size_formatted'] ?></div>
                                 <div class="file-date"><?= $file['uploaded_at_formatted'] ?></div>
@@ -455,6 +659,22 @@ $userInfo = $authController->getCurrentUser();
                                         <i class="fas fa-eye"></i>
                                     </button>
                                     <?php if (!$file['deleted_at']): ?>
+                                    <?php if ($adminMode): ?>
+                                    <!-- Admin actions -->
+                                    <button class="btn btn-outline-warning btn-sm" 
+                                            onclick="adminEditFile(<?= $file['id'] ?>)" title="Admin Edit">
+                                        <i class="fas fa-cog"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" 
+                                            onclick="adminDeleteFile(<?= $file['id'] ?>)" title="Admin Delete">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    <button class="btn btn-outline-success btn-sm" 
+                                            onclick="transferOwnership(<?= $file['id'] ?>)" title="Transfer">
+                                        <i class="fas fa-exchange-alt"></i>
+                                    </button>
+                                    <?php else: ?>  
+                                        
                                     <button class="btn btn-outline-success btn-sm" 
                                             onclick="editFile(<?= $file['id'] ?>)" title="Edit">
                                         <i class="fas fa-edit"></i>
@@ -463,15 +683,24 @@ $userInfo = $authController->getCurrentUser();
                                             onclick="deleteFile(<?= $file['id'] ?>)" title="Hapus">
                                         <i class="fas fa-trash"></i>
                                     </button>
+                                    <?php endif; ?>
                                     <?php else: ?>
-                                    <button class="btn btn-outline-warning btn-sm" 
-                                            onclick="restoreFile(<?= $file['id'] ?>)" title="Restore">
-                                        <i class="fas fa-undo"></i>
-                                    </button>
-                                    <button class="btn btn-outline-danger btn-sm" 
-                                            onclick="permanentDeleteFile(<?= $file['id'] ?>)" title="Hapus Permanen">
-                                        <i class="fas fa-trash-alt"></i>
-                                    </button>
+                                        <?php if ($adminMode): ?>
+                                        <!-- Admin restore -->
+                                        <button class="btn btn-outline-success btn-sm" 
+                                                onclick="adminRestoreFile(<?= $file['id'] ?>)" title="Admin Restore">
+                                            <i class="fas fa-undo"></i>
+                                        </button>
+                                        <?php else: ?>
+                                        <button class="btn btn-outline-warning btn-sm" 
+                                                onclick="restoreFile(<?= $file['id'] ?>)" title="Restore">
+                                            <i class="fas fa-undo"></i>
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-sm" 
+                                                onclick="permanentDeleteFile(<?= $file['id'] ?>)" title="Hapus Permanen">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </div>
                             </div>
@@ -512,6 +741,136 @@ $userInfo = $authController->getCurrentUser();
             </div>
         </div>
     </div>
+
+     <!-- Admin Edit Modal -->
+    <?php if ($isAdmin): ?>
+    <div class="modal fade" id="adminEditModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <form method="POST">
+                    <input type="hidden" name="action" value="admin_update_file">
+                    <input type="hidden" name="file_id" id="adminEditFileId">
+                    <?php if ($adminMode): ?>
+                    <input type="hidden" name="admin_mode" value="1">
+                    <?php endif; ?>
+                    <div class="modal-header bg-danger text-white">
+                        <h5 class="modal-title">
+                            <i class="fas fa-shield-alt me-2"></i>Admin Edit File
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <strong>Mode Admin:</strong> Anda dapat mengubah file milik user lain dan transfer ownership.
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Nama File</label>
+                                    <input type="text" class="form-control" name="new_name" id="adminEditFileName" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Label</label>
+                                    <select class="form-select" name="label_id" id="adminEditLabelId" required>
+                                        <?php foreach ($labels as $label): ?>
+                                        <option value="<?= $label['id'] ?>"><?= htmlspecialchars($label['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Access Level</label>
+                                    <select class="form-select" name="access_level_id" id="adminEditAccessLevelId" required>
+                                        <?php foreach ($accessLevels as $level): ?>
+                                        <option value="<?= $level['id'] ?>"><?= htmlspecialchars($level['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Transfer Ownership (Opsional)</label>
+                                    <select class="form-select" name="new_owner_id" id="adminEditOwnerId">
+                                        <option value="">Tidak Transfer</option>
+                                        <?php foreach ($allUsers as $user): ?>
+                                        <option value="<?= $user['id'] ?>">
+                                            <?= htmlspecialchars($user['username']) ?> - <?= htmlspecialchars($user['email']) ?>
+                                        </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </div>
+                                <div class="card bg-light">
+                                    <div class="card-body">
+                                        <h6>Current Owner:</h6>
+                                        <div id="currentOwnerInfo"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-danger">
+                            <i class="fas fa-save"></i> Update (Admin)
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transfer Ownership Modal -->
+    <div class="modal fade" id="transferModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="POST">
+                    <input type="hidden" name="action" value="transfer_ownership">
+                    <input type="hidden" name="file_id" id="transferFileId">
+                    <?php if ($adminMode): ?>
+                    <input type="hidden" name="admin_mode" value="1">
+                    <?php endif; ?>
+                    <div class="modal-header bg-info text-white">
+                        <h5 class="modal-title">Transfer Ownership</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            Transfer ownership file ke user lain.
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Pilih User Baru:</label>
+                            <select class="form-select" name="new_owner_id" required>
+                                <option value="">Pilih User...</option>
+                                <?php foreach ($allUsers as $user): ?>
+                                <option value="<?= $user['id'] ?>">
+                                    <?= htmlspecialchars($user['username']) ?> - <?= htmlspecialchars($user['email']) ?> 
+                                    (<?= $user['file_count'] ?> files)
+                                </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        
+                        <div class="card bg-light">
+                            <div class="card-body">
+                                <h6>File Info:</h6>
+                                <div id="transferFileInfo"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-info">
+                            <i class="fas fa-exchange-alt"></i> Transfer
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Modals -->
     <!-- View File Modal -->
@@ -580,7 +939,20 @@ $userInfo = $authController->getCurrentUser();
         let selectedFiles = [];
 
         function setBulkAction(action) {
+            console.log('Setting bulk action:', action);
             document.getElementById('bulkAction').value = action;
+            
+            // Debug: Show selected files
+            const selected = document.querySelectorAll('.file-selector:checked');
+            console.log('Selected files for bulk action:', Array.from(selected).map(cb => cb.value));
+            
+            // ADDITIONAL DEBUG: Show form data before submit
+            const bulkForm = document.getElementById('bulkForm');
+            const formData = new FormData(bulkForm);
+            console.log('Form data before submit:');
+            for (let [key, value] of formData.entries()) {
+                console.log(`  ${key}: ${value}`);
+            }
         }
 
         function toggleSelectMode() {
@@ -696,6 +1068,60 @@ $userInfo = $authController->getCurrentUser();
                 document.body.appendChild(form);
                 form.submit();
             }
+        }
+
+        // TAMBAHAN: Admin JavaScript functions
+        function adminEditFile(fileId) {
+            fetch(`get_file_data.php?id=${fileId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('adminEditFileId').value = data.file.id;
+                        document.getElementById('adminEditFileName').value = data.file.original_filename;
+                        document.getElementById('adminEditLabelId').value = data.file.label_id;
+                        document.getElementById('adminEditAccessLevelId').value = data.file.access_level_id;
+                        new bootstrap.Modal(document.getElementById('adminEditModal')).show();
+                    } else {
+                        alert('Gagal memuat data file: ' + data.message);
+                    }
+                })
+                .catch(() => {
+                    alert('Gagal memuat data file');
+                });
+        }
+
+        function adminDeleteFile(fileId) {
+            if (confirm('ADMIN DELETE: Yakin ingin menghapus file ini? Anda menghapus file milik user lain.')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="action" value="admin_delete_file">
+                    <input type="hidden" name="file_id" value="${fileId}">
+                    <?= $adminMode ? '<input type="hidden" name="admin_mode" value="1">' : '' ?>
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function adminRestoreFile(fileId) {
+            if (confirm('ADMIN RESTORE: Yakin ingin merestore file ini?')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.innerHTML = `
+                    <input type="hidden" name="action" value="admin_restore_file">
+                    <input type="hidden" name="file_id" value="${fileId}">
+                    <?= $adminMode ? '<input type="hidden" name="admin_mode" value="1">' : '' ?>
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+
+        function transferOwnership(fileId) {
+            document.getElementById('transferFileId').value = fileId;
+            document.getElementById('transferFileInfo').innerHTML = `Loading file info...`;
+            new bootstrap.Modal(document.getElementById('transferModal')).show();
         }
     </script>
 </body>
