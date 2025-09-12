@@ -194,14 +194,37 @@ function handleUpload() {
         
         if ($result) {
             error_log("Upload successful - File ID: $result, Has description: " . (!empty($uploadData['file_description']) ? 'YES' : 'NO'));
-            header('Location: views/dashboard.php?status=upload_success');
+            
+            // FIXED: Jangan redirect langsung, tapi return response untuk AJAX
+            if (isAjaxRequest()) {
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'success' => true,
+                    'file_id' => $result,
+                    'message' => 'File uploaded successfully',
+                    'filename' => $_FILES['file']['name']
+                ]);
+            } else {
+                // Untuk non-AJAX, redirect ke upload form dengan success parameter
+                header('Location: views/upload_form.php?status=success&file_id=' . $result . '&filename=' . urlencode($_FILES['file']['name']));
+            }
         } else {
             throw new Exception('Upload failed - no result returned');
         }
         
     } catch (Exception $e) {
         error_log("Upload error: " . $e->getMessage());
-        header('Location: views/upload_form.php?error=' . urlencode($e->getMessage()));
+        
+        if (isAjaxRequest()) {
+            header('Content-Type: application/json');
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'message' => $e->getMessage()
+            ]);
+        } else {
+            header('Location: views/upload_form.php?error=' . urlencode($e->getMessage()));
+        }
     }
     exit;
 }

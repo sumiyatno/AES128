@@ -78,6 +78,9 @@ class FileController {
             throw new RuntimeException("User harus login untuk upload file");
         }
 
+        // NEW: Validate file type and size
+        $this->validateFileUpload($file);
+
         // Ambil user ID dari session
         $uploadedBy = $_SESSION['user_id'];
         $fileId = uniqid("file_");
@@ -733,5 +736,86 @@ private function encryptDisplayName($displayName) {
             error_log("Set display mode error: " . $e->getMessage());
             throw new RuntimeException("Failed to update display mode");
         }
+    }
+
+    // Di FileController.php, tambahkan method validasi file:
+
+    /**
+     * Validate file type and size - METHOD BARU
+     */
+    private function validateFileUpload($file) {
+        // Allowed file types
+        $allowedExtensions = [
+            // Documents
+            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+            // Text files
+            'txt', 'csv', 'rtf',
+            // Images  
+            'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg'
+        ];
+        
+        // Forbidden file types
+        $forbiddenExtensions = [
+            // Video files
+            'mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm', '3gp',
+            // Audio files
+            'mp3', 'wav', 'flac', 'ogg', 'aac', 'wma', 'm4a',
+            // Executable files
+            'exe', 'bat', 'com', 'cmd', 'scr', 'msi', 'deb', 'rpm',
+            // Script files
+            'js', 'vbs', 'ps1', 'sh'
+        ];
+        
+        $maxSize = 10 * 1024 * 1024; // 10MB
+        
+        // Get file extension
+        $fileName = strtolower($file['name']);
+        $fileExtension = pathinfo($fileName, PATHINFO_EXTENSION);
+        
+        // Check if file is forbidden
+        if (in_array($fileExtension, $forbiddenExtensions)) {
+            throw new RuntimeException("Tipe file .$fileExtension tidak diizinkan untuk alasan keamanan.");
+        }
+        
+        // Check if file is allowed
+        if (!in_array($fileExtension, $allowedExtensions)) {
+            throw new RuntimeException("Tipe file .$fileExtension tidak didukung. Hanya file dokumen, gambar, dan text yang diperbolehkan.");
+        }
+        
+        // Check file size
+        if ($file['size'] > $maxSize) {
+            $maxSizeMB = $maxSize / (1024 * 1024);
+            $fileSizeMB = round($file['size'] / (1024 * 1024), 2);
+            throw new RuntimeException("Ukuran file terlalu besar ({$fileSizeMB}MB). Maksimal {$maxSizeMB}MB.");
+        }
+        
+        // Additional MIME type validation
+        $allowedMimeTypes = [
+            // Documents
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            // Text
+            'text/plain',
+            'text/csv',
+            'application/rtf',
+            // Images
+            'image/jpeg',
+            'image/jpg', 
+            'image/png',
+            'image/gif',
+            'image/bmp',
+            'image/svg+xml'
+        ];
+        
+        if (!in_array($file['type'], $allowedMimeTypes)) {
+            error_log("MIME type validation warning: {$file['type']} not in allowed list, but file extension $fileExtension is allowed");
+        }
+        
+        return true;
     }
 }

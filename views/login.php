@@ -135,7 +135,7 @@ if (isset($_GET['logout'])) {
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>🔐 AES Login</h1>
+            <h1>🔐SFMS</h1>
             <p>Secure File Management System</p>
         </div>
 
